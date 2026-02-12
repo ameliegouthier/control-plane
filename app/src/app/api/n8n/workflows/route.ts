@@ -61,7 +61,7 @@ export async function GET() {
         update: {
           name: wf.name,
           status: wf.active ? "active" : "inactive",
-          triggerType: triggerNode?.type ?? null,
+          triggerType: triggerNode?.type ?? undefined,
           triggerConfig,
           actions,
           lastSyncedAt: new Date(),
@@ -72,7 +72,7 @@ export async function GET() {
           toolWorkflowId: String(wf.id),
           name: wf.name,
           status: wf.active ? "active" : "inactive",
-          triggerType: triggerNode?.type ?? null,
+          triggerType: triggerNode?.type ?? undefined,
           triggerConfig,
           actions,
           lastSyncedAt: new Date(),
