@@ -1,0 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/**
+ * Enums
+ */
+enum ToolType {
+  N8N
+  ZAPIER
+  MAKE
+}
+
+enum ConnectionStatus {
+  ACTIVE
+  DISABLED
+  ERROR
+}
+
+enum SyncStatus {
+  SUCCESS
+  PARTIAL
+  ERROR
+}
+
+/**
+ * Models
+ */
+model User {
+  id          String       @id @default(cuid())
+  email       String       @unique
+  name        String?
+  createdAt   DateTime     @default(now())
+
+  connections Connection[]
+  workflows   Workflow[]
+  syncLogs    SyncLog[]
+}
+
+model Connection {
+  id            String           @id @default(cuid())
+  userId        String
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tool          ToolType
+  status        ConnectionStatus @default(ACTIVE)
+
+  // Identifiant côté outil (si dispo), utile plus tard
+  externalAccountId String?
+
+  // Stockage safe: on met des "pointers", pas des secrets en clair.
+  // (Jour 2 tu pourras stocker un encryptedAccessToken, ou un vault ref)
+  config        Json?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  lastSyncedAt  DateTime?
+
+  workflows     Workflow[]
+  syncLogs      SyncLog[]
+
+  @@unique([userId, tool])
+  @@index([userId])
+  @@index([tool])
+  @@index([status])
+}
+
+model Workflow {
+  id            String   @id @default(cuid())
+
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  connectionId  String
+  connection    Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  // Identifiant du workflow côté outil externe
+  toolWorkflowId String
+  name          String
+  status        String
+  triggerType   String?
+  triggerConfig Json?
+  actions       Json?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastSyncedAt  DateTime?
+
+  @@unique([connectionId, toolWorkflowId])
+  @@index([userId])
+  @@index([connectionId])
+}
+
+model SyncLog {
+  id             String   @id @default(cuid())
+
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  connectionId   String
+  connection     Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  status         SyncStatus
+  workflowsCount Int?
+  errorMessage   String?
+  syncedAt       DateTime @default(now())
+
+  @@index([userId])
+  @@index([connectionId])
+  @@index([syncedAt])
+}
