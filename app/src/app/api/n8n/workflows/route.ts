@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getN8nConnection } from "@/lib/n8n-connection";
 
@@ -42,6 +43,14 @@ export async function GET() {
         return t.includes("trigger") || t.includes("webhook");
       });
 
+      const triggerConfig = triggerNode?.parameters
+        ? (triggerNode.parameters as Prisma.InputJsonValue)
+        : Prisma.JsonNull;
+      const actions = {
+        nodes: wf.nodes,
+        connections: wf.connections,
+      } as Prisma.InputJsonValue;
+
       await prisma.workflow.upsert({
         where: {
           connectionId_toolWorkflowId: {
@@ -53,8 +62,8 @@ export async function GET() {
           name: wf.name,
           status: wf.active ? "active" : "inactive",
           triggerType: triggerNode?.type ?? null,
-          triggerConfig: triggerNode?.parameters ?? null,
-          actions: { nodes: wf.nodes, connections: wf.connections },
+          triggerConfig,
+          actions,
           lastSyncedAt: new Date(),
         },
         create: {
@@ -64,8 +73,8 @@ export async function GET() {
           name: wf.name,
           status: wf.active ? "active" : "inactive",
           triggerType: triggerNode?.type ?? null,
-          triggerConfig: triggerNode?.parameters ?? null,
-          actions: { nodes: wf.nodes, connections: wf.connections },
+          triggerConfig,
+          actions,
           lastSyncedAt: new Date(),
         },
       });
