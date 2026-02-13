@@ -1,6 +1,6 @@
 import React from "react";
 import Dashboard from "./dashboard";
-import type { Workflow } from "./workflow-helpers";
+import { type Workflow, toWorkflow } from "./workflow-helpers";
 import { getN8nConnection } from "@/lib/n8n-connection";
 import { getDemoUser } from "@/lib/demo-user";
 import { prisma } from "@/lib/prisma";
@@ -43,19 +43,7 @@ export default async function Home() {
         orderBy: { updatedAt: "desc" },
       });
 
-      workflows = dbWorkflows.map((wf) => {
-        const actions = (wf.actions ?? {}) as Record<string, unknown>;
-        return {
-          id: wf.toolWorkflowId,
-          name: wf.name,
-          active: wf.status === "active",
-          nodes: (actions.nodes as unknown[]) ?? [],
-          connections:
-            (actions.connections as Record<string, unknown>) ?? {},
-          updatedAt: wf.updatedAt.toISOString(),
-          createdAt: wf.createdAt.toISOString(),
-        };
-      });
+      workflows = dbWorkflows.map(toWorkflow);
     } catch (e: unknown) {
       console.error("[page] workflow read failed:", e);
       error = e instanceof Error ? e.message : "Could not load workflows";

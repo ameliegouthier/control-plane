@@ -1,3 +1,5 @@
+import type { Workflow as DbWorkflow } from "@prisma/client";
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface WorkflowNode {
@@ -30,6 +32,71 @@ export interface Workflow {
   connections: Connections;
   updatedAt: string;
   createdAt: string;
+}
+
+// ─── Prisma → Workflow mapper ────────────────────────────────────────────────
+
+/**
+ * Safely convert a Prisma Workflow row (with Json `actions` field) into the
+ * strict frontend `Workflow` type.  Validates every node through a type guard
+ * and falls back to empty values for missing/corrupt data.
+ */
+export function toWorkflow(db: DbWorkflow): Workflow {
+  // `actions` is Prisma Json? — might be null, a primitive, an array, etc.
+  const actions =
+    db.actions != null &&
+    typeof db.actions === "object" &&
+    !Array.isArray(db.actions)
+      ? (db.actions as Record<string, unknown>)
+      : {};
+
+  const rawNodes = actions.nodes;
+  const nodes: WorkflowNode[] = Array.isArray(rawNodes)
+    ? (rawNodes.map(parseWorkflowNode).filter(Boolean) as WorkflowNode[])
+    : [];
+
+  const rawConns = actions.connections;
+  const connections: Connections =
+    rawConns != null &&
+    typeof rawConns === "object" &&
+    !Array.isArray(rawConns)
+      ? (rawConns as Connections)
+      : ({} as Connections);
+
+  return {
+    id: db.toolWorkflowId,
+    name: db.name,
+    active: db.status === "active",
+    nodes,
+    connections,
+    updatedAt: db.updatedAt.toISOString(),
+    createdAt: db.createdAt.toISOString(),
+  };
+}
+
+/**
+ * Parse a single raw value from the Json blob into a `WorkflowNode`.
+ * Returns `null` when the required fields (`name`, `type`) are missing.
+ * Fills in defaults for optional fields (`id`, `position`).
+ */
+function parseWorkflowNode(val: unknown): WorkflowNode | null {
+  if (val == null || typeof val !== "object") return null;
+  const obj = val as Record<string, unknown>;
+
+  // `name` and `type` are mandatory — skip the entry without them
+  if (typeof obj.name !== "string" || typeof obj.type !== "string") return null;
+
+  return {
+    id: typeof obj.id === "string" ? obj.id : obj.name,
+    name: obj.name,
+    type: obj.type,
+    position: Array.isArray(obj.position)
+      ? (obj.position as [number, number])
+      : [0, 0],
+    ...(obj.parameters != null && typeof obj.parameters === "object"
+      ? { parameters: obj.parameters as Record<string, unknown> }
+      : {}),
+  };
 }
 
 export interface MiniMapNode {

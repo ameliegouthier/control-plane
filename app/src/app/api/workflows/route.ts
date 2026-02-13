@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getDemoUser } from "@/lib/demo-user";
+import { toWorkflow } from "@/app/workflow-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -32,19 +33,7 @@ export async function GET(req: NextRequest) {
       orderBy: { updatedAt: "desc" },
     });
 
-    // Map DB rows → frontend Workflow shape
-    const data = dbWorkflows.map((wf) => {
-      const actions = (wf.actions ?? {}) as Record<string, unknown>;
-      return {
-        id: wf.toolWorkflowId,
-        name: wf.name,
-        active: wf.status === "active",
-        nodes: (actions.nodes as unknown[]) ?? [],
-        connections: (actions.connections as Record<string, unknown>) ?? {},
-        updatedAt: wf.updatedAt.toISOString(),
-        createdAt: wf.createdAt.toISOString(),
-      };
-    });
+    const data = dbWorkflows.map(toWorkflow);
 
     return NextResponse.json({ data, count: data.length });
   } catch (err: unknown) {
