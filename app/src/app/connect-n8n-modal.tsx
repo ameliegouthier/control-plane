@@ -2,13 +2,65 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+type AuthType = "apiKey" | "basic";
+type Status = "idle" | "testing" | "saving" | "success" | "error";
+
 interface ConnectN8nModalProps {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-type Status = "idle" | "loading" | "success" | "error";
+// ─── Error-code → French message map ────────────────────────────────────────
+
+const ERROR_MESSAGES: Record<string, string> = {
+  INVALID_URL: "URL invalide — inclus le protocole (https://…).",
+  LOCALHOST_NOT_ALLOWED:
+    "Vercel ne peut pas joindre localhost. Utilise ngrok pour exposer ton instance n8n.",
+  N8N_UNREACHABLE:
+    "n8n inaccessible — vérifie l'URL et que l'instance est bien démarrée.",
+  INVALID_CREDENTIALS:
+    "Identifiants invalides — vérifie ton email/mot de passe ou ta clé API.",
+  AUTH_REQUIRED: "n8n demande une authentification (login).",
+  WRONG_BASE_URL_OR_API_PATH:
+    "Mauvaise URL ou chemin API — l'API n8n n'a pas été trouvée.",
+  NOT_JSON:
+    "La réponse n'est pas du JSON — probablement une page de login ou un interstitiel ngrok.",
+  N8N_ERROR: "n8n a renvoyé une erreur.",
+};
+
+function mapError(code?: string, fallbackMsg?: string): string {
+  if (code && ERROR_MESSAGES[code]) return ERROR_MESSAGES[code];
+  return fallbackMsg ?? "Erreur inconnue.";
+}
+
+// ─── Spinner SVG ────────────────────────────────────────────────────────────
+
+function Spinner() {
+  return (
+    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="3"
+        className="opacity-25"
+      />
+      <path
+        d="M4 12a8 8 0 018-8"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        className="opacity-75"
+      />
+    </svg>
+  );
+}
+
+// ─── Modal component ────────────────────────────────────────────────────────
 
 export default function ConnectN8nModal({
   open,
@@ -16,79 +68,123 @@ export default function ConnectN8nModal({
   onSuccess,
 }: ConnectN8nModalProps) {
   const [baseUrl, setBaseUrl] = useState("");
+  const [authType, setAuthType] = useState<AuthType>("basic");
   const [apiKey, setApiKey] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [detail, setDetail] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus first input when modal opens
   useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
+    if (open) setTimeout(() => inputRef.current?.focus(), 50);
   }, [open]);
 
   // Reset state when modal is reopened
   useEffect(() => {
     if (open) {
       setBaseUrl("");
+      setAuthType("basic");
       setApiKey("");
+      setUsername("");
+      setPassword("");
       setStatus("idle");
       setErrorMsg("");
+      setDetail("");
     }
   }, [open]);
+
+  // Are the required fields filled?
+  const canSubmit =
+    baseUrl.trim() !== "" &&
+    (authType === "apiKey"
+      ? apiKey.trim() !== ""
+      : username.trim() !== "" && password.trim() !== "");
+
+  // ── Submit handler: test → save ───────────────────────────────────────────
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
-      setStatus("loading");
       setErrorMsg("");
+      setDetail("");
 
+      const payload = {
+        baseUrl,
+        authType,
+        ...(authType === "apiKey" ? { apiKey } : { username, password }),
+      };
+
+      // Step 1 — test
+      setStatus("testing");
       try {
-        const res = await fetch("/api/connections/n8n", {
+        const testRes = await fetch("/api/connections/n8n/test", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ baseUrl, apiKey }),
+          body: JSON.stringify(payload),
         });
+        const testData = await testRes.json();
 
-        const data = await res.json();
-
-        if (!res.ok) {
+        if (!testData.ok) {
           setStatus("error");
-          // Show main error, and append detail if present (for debugging)
-          const msg = data.error ?? "Unknown error";
-          const detail = data.detail ? `\n(${data.detail})` : "";
-          setErrorMsg(`${msg}${detail}`);
+          setErrorMsg(mapError(testData.code, testData.message));
+          if (testData.message) setDetail(testData.message);
           return;
         }
-
-        setStatus("success");
-        // Close after a short delay so user sees the success message
-        setTimeout(() => {
-          onSuccess();
-          onClose();
-        }, 1200);
       } catch {
         setStatus("error");
-        setErrorMsg("Network error — check your connection");
+        setErrorMsg("Erreur réseau — vérifie ta connexion.");
+        return;
       }
+
+      // Step 2 — save
+      setStatus("saving");
+      try {
+        const saveRes = await fetch("/api/connections/n8n", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const saveData = await saveRes.json();
+
+        if (!saveData.ok) {
+          setStatus("error");
+          setErrorMsg(mapError(saveData.code, saveData.message));
+          if (saveData.message) setDetail(saveData.message);
+          return;
+        }
+      } catch {
+        setStatus("error");
+        setErrorMsg("Erreur réseau lors de la sauvegarde.");
+        return;
+      }
+
+      // Done
+      setStatus("success");
+      setTimeout(() => {
+        onSuccess();
+        onClose();
+      }, 1200);
     },
-    [baseUrl, apiKey, onSuccess, onClose],
+    [baseUrl, authType, apiKey, username, password, onSuccess, onClose],
   );
 
   if (!open) return null;
 
+  const busy = status === "testing" || status === "saving";
+
   return (
-    // Backdrop
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
       onClick={(e) => {
-        if (e.target === e.currentTarget && status !== "loading") onClose();
+        if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
-      {/* Modal card */}
       <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white shadow-xl">
-        {/* Header */}
+        {/* ── Header ─────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between border-b border-zinc-100 px-6 py-4">
           <div className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-base">
@@ -101,7 +197,7 @@ export default function ConnectN8nModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={status === "loading"}
+            disabled={busy}
             className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 disabled:opacity-50"
           >
             <svg
@@ -118,53 +214,129 @@ export default function ConnectN8nModal({
           </button>
         </div>
 
-        {/* Body */}
+        {/* ── Body ───────────────────────────────────────────────────── */}
         <form onSubmit={handleSubmit} className="px-6 py-5">
           <p className="mb-4 text-sm text-zinc-500">
-            Enter your n8n instance URL and API key. We&apos;ll test the
-            connection before saving.
+            Entre l&apos;URL de ton instance n8n et tes identifiants.
+            On teste la connexion avant de sauvegarder.
           </p>
 
           {/* Base URL */}
           <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-400">
-            n8n URL
+            URL n8n
           </label>
           <input
             ref={inputRef}
             type="text"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="https://your-n8n.example.com"
+            placeholder="https://xxxx.ngrok-free.app"
             required
-            disabled={status === "loading" || status === "success"}
+            disabled={busy || status === "success"}
             className="mb-4 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none transition placeholder:text-zinc-300 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:bg-zinc-50 disabled:text-zinc-400"
           />
 
-          {/* API Key */}
-          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-400">
-            API Key
+          {/* Auth type toggle */}
+          <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+            Authentification
           </label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="n8n API key"
-            required
-            disabled={status === "loading" || status === "success"}
-            className="mb-5 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none transition placeholder:text-zinc-300 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:bg-zinc-50 disabled:text-zinc-400"
-          />
+          <div className="mb-4 flex gap-1 rounded-lg bg-zinc-100 p-0.5">
+            <button
+              type="button"
+              disabled={busy || status === "success"}
+              onClick={() => setAuthType("basic")}
+              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                authType === "basic"
+                  ? "bg-white text-zinc-900 shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-700"
+              } disabled:opacity-50`}
+            >
+              Email / Mot de passe
+            </button>
+            <button
+              type="button"
+              disabled={busy || status === "success"}
+              onClick={() => setAuthType("apiKey")}
+              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                authType === "apiKey"
+                  ? "bg-white text-zinc-900 shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-700"
+              } disabled:opacity-50`}
+            >
+              Clé API
+            </button>
+          </div>
+
+          {/* Conditional credential fields */}
+          {authType === "apiKey" ? (
+            <>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+                Clé API n8n
+              </label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Clé API n8n"
+                required
+                disabled={busy || status === "success"}
+                className="mb-4 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none transition placeholder:text-zinc-300 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:bg-zinc-50 disabled:text-zinc-400"
+              />
+            </>
+          ) : (
+            <>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+                Email
+              </label>
+              <input
+                type="email"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="admin@example.com"
+                required
+                disabled={busy || status === "success"}
+                className="mb-3 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none transition placeholder:text-zinc-300 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:bg-zinc-50 disabled:text-zinc-400"
+              />
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+                Mot de passe
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mot de passe n8n"
+                required
+                disabled={busy || status === "success"}
+                className="mb-4 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none transition placeholder:text-zinc-300 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:bg-zinc-50 disabled:text-zinc-400"
+              />
+            </>
+          )}
+
+          {/* ngrok help text */}
+          <div className="mb-4 rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2 text-[11px] leading-relaxed text-zinc-400">
+            <span className="font-medium text-zinc-500">ngrok ?</span>{" "}
+            Si n8n tourne en local, lance{" "}
+            <code className="rounded bg-zinc-200 px-1 py-0.5 font-mono text-zinc-600">
+              ngrok http 5678
+            </code>{" "}
+            puis utilise l&apos;URL <code className="font-mono">https://…</code>{" "}
+            fournie.
+          </div>
 
           {/* Error message */}
           {status === "error" && (
             <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600">
-              {errorMsg}
+              <p>{errorMsg}</p>
+              {detail && detail !== errorMsg && (
+                <p className="mt-1 text-[11px] text-red-400">{detail}</p>
+              )}
             </div>
           )}
 
           {/* Success message */}
           {status === "success" && (
             <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700">
-              Connected successfully!
+              Connexion réussie !
             </div>
           )}
 
@@ -173,45 +345,22 @@ export default function ConnectN8nModal({
             <button
               type="button"
               onClick={onClose}
-              disabled={status === "loading"}
+              disabled={busy}
               className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-50"
             >
-              Cancel
+              Annuler
             </button>
             <button
               type="submit"
-              disabled={
-                status === "loading" ||
-                status === "success" ||
-                !baseUrl.trim() ||
-                !apiKey.trim()
-              }
+              disabled={busy || status === "success" || !canSubmit}
               className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
             >
-              {status === "loading" && (
-                <svg
-                  className="h-4 w-4 animate-spin"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                >
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    className="opacity-25"
-                  />
-                  <path
-                    d="M4 12a8 8 0 018-8"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    className="opacity-75"
-                  />
-                </svg>
-              )}
-              {status === "loading" ? "Testing…" : "Connect"}
+              {busy && <Spinner />}
+              {status === "testing"
+                ? "Test en cours…"
+                : status === "saving"
+                  ? "Sauvegarde…"
+                  : "Connecter"}
             </button>
           </div>
         </form>

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { getN8nConnection } from "./n8n-connection";
+import { fetchN8nApi } from "./n8n-client";
 
 // Minimal types for the n8n API response
 interface N8nNode {
@@ -31,9 +32,14 @@ export interface SyncResult {
  * Fetch workflows from the connected n8n instance and sync them into the DB.
  * Returns a SyncResult indicating success/failure and count.
  *
+ * Uses fetchN8nApi which handles:
+ *   - API key auth (X-N8N-API-KEY on /api/v1/*)
+ *   - Login-based auth (POST /rest/login → session cookie on /rest/*)
+ *   - ngrok header bypass
+ *
  * Can be called from:
- *  - Server component (page.tsx) during render
- *  - API route (GET /api/n8n/workflows) for explicit sync
+ *   - Server component (page.tsx) during render
+ *   - API route (GET /api/n8n/workflows) for explicit sync
  */
 export async function syncN8nWorkflows(): Promise<SyncResult> {
   const conn = await getN8nConnection();
@@ -45,10 +51,7 @@ export async function syncN8nWorkflows(): Promise<SyncResult> {
   const { connectionId, userId, credentials } = conn;
 
   try {
-    const res = await fetch(`${credentials.baseUrl}/api/v1/workflows`, {
-      headers: { "X-N8N-API-KEY": credentials.apiKey },
-      cache: "no-store",
-    });
+    const res = await fetchN8nApi(credentials, "/workflows");
 
     if (!res.ok) {
       const msg = `n8n responded with status ${res.status}`;

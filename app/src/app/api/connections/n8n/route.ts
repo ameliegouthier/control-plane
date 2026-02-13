@@ -2,155 +2,156 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getDemoUser } from "@/lib/demo-user";
 import { encrypt } from "@/lib/crypto";
+import {
+  type N8nAuthType,
+  testN8nConnection,
+  normalizeBaseUrl,
+} from "@/lib/n8n-client";
 
 export const dynamic = "force-dynamic";
 
 // ─── GET /api/connections/n8n ───────────────────────────────────────────────
-// Returns { connected: boolean } — used by the frontend to persist state.
+// Returns { connected, baseUrl?, authType? } — no secrets.
 
 export async function GET() {
   try {
-    // TODO: Replace getDemoUser() with actual authenticated user from session
     const user = await getDemoUser();
 
     const connection = await prisma.connection.findUnique({
       where: { userId_tool: { userId: user.id, tool: "N8N" } },
     });
 
-    // Verify the config actually has the encrypted key format
     const config = connection?.config as Record<string, string> | null;
+
     const connected =
       connection?.status === "ACTIVE" &&
       !!config?.baseUrl &&
-      !!config?.encryptedApiKey;
+      !!config?.authType;
 
-    return NextResponse.json({ connected });
+    return NextResponse.json({
+      connected,
+      ...(connected && config
+        ? { baseUrl: config.baseUrl, authType: config.authType }
+        : {}),
+    });
   } catch {
     return NextResponse.json({ connected: false });
   }
 }
 
 // ─── POST /api/connections/n8n ──────────────────────────────────────────────
-// Body: { baseUrl: string, apiKey: string }
+// Body: { baseUrl, authType, apiKey?, username?, password? }
 // Tests the connection, then encrypts & saves credentials in DB.
 
 export async function POST(req: NextRequest) {
-  // --- Parse body -----------------------------------------------------------
-  let body: unknown;
+  // ── Parse body ────────────────────────────────────────────────────────────
+  let body: Record<string, unknown>;
   try {
-    body = await req.json();
+    body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json(
-      { error: "Invalid JSON body" },
+      { ok: false, code: "INVALID_URL", message: "Invalid JSON body." },
       { status: 400 },
     );
   }
 
-  const { baseUrl, apiKey } = body as Record<string, unknown>;
+  const { baseUrl, authType, apiKey, username, password } = body;
 
+  // ── Validate inputs ───────────────────────────────────────────────────────
   if (typeof baseUrl !== "string" || !baseUrl.trim()) {
     return NextResponse.json(
-      { error: "baseUrl is required" },
+      { ok: false, code: "INVALID_URL", message: "baseUrl is required." },
       { status: 400 },
     );
   }
-  if (typeof apiKey !== "string" || !apiKey.trim()) {
+
+  const validAuthTypes: N8nAuthType[] = ["apiKey", "basic"];
+  if (
+    typeof authType !== "string" ||
+    !validAuthTypes.includes(authType as N8nAuthType)
+  ) {
     return NextResponse.json(
-      { error: "apiKey is required" },
-      { status: 400 },
-    );
-  }
-
-  // --- Normalize URL --------------------------------------------------------
-  const normalizedUrl = baseUrl.trim().replace(/\/+$/, "");
-
-  try {
-    new URL(normalizedUrl);
-  } catch {
-    return NextResponse.json(
-      { error: "baseUrl is not a valid URL" },
-      { status: 400 },
-    );
-  }
-
-  // --- Test connection (GET /api/v1/workflows?limit=1) ----------------------
-  try {
-    const testRes = await fetch(
-      `${normalizedUrl}/api/v1/workflows?limit=1`,
       {
-        headers: { "X-N8N-API-KEY": apiKey },
-        signal: AbortSignal.timeout(10_000),
+        ok: false,
+        code: "INVALID_URL",
+        message: 'authType must be "apiKey" or "basic".',
       },
+      { status: 400 },
     );
+  }
+  const at = authType as N8nAuthType;
 
-    if (!testRes.ok) {
-      if (testRes.status === 401 || testRes.status === 403) {
-        return NextResponse.json(
-          { error: "API key rejected by n8n (401/403)" },
-          { status: 401 },
-        );
-      }
+  if (at === "apiKey" && (typeof apiKey !== "string" || !apiKey.trim())) {
+    return NextResponse.json(
+      { ok: false, code: "INVALID_CREDENTIALS", message: "apiKey is required." },
+      { status: 400 },
+    );
+  }
+  if (at === "basic") {
+    if (typeof username !== "string" || !username.trim()) {
       return NextResponse.json(
-        { error: `n8n responded with status ${testRes.status}` },
-        { status: 502 },
+        { ok: false, code: "INVALID_CREDENTIALS", message: "username (email) is required." },
+        { status: 400 },
       );
     }
-  } catch (err: unknown) {
-    console.error("[POST /api/connections/n8n] test fetch failed:", {
-      url: `${normalizedUrl}/api/v1/workflows?limit=1`,
-      error: err,
-    });
-    const raw = err instanceof Error ? err.message : String(err);
-    // Provide a user-friendly message while keeping the raw error for debugging
-    let userMsg = `Cannot reach n8n at ${normalizedUrl}`;
-    if (raw.includes("fetch failed") || raw.includes("ECONNREFUSED")) {
-      userMsg += " — make sure the URL is publicly accessible (not localhost)";
-    } else if (raw.includes("certificate") || raw.includes("SSL")) {
-      userMsg += " — SSL/TLS certificate error";
-    } else if (raw.includes("ENOTFOUND")) {
-      userMsg += " — hostname not found (check the URL)";
-    } else if (raw.includes("timeout") || raw.includes("AbortError")) {
-      userMsg += " — request timed out after 10 seconds";
+    if (typeof password !== "string" || !password.trim()) {
+      return NextResponse.json(
+        { ok: false, code: "INVALID_CREDENTIALS", message: "password is required." },
+        { status: 400 },
+      );
     }
-    return NextResponse.json(
-      { error: userMsg, detail: raw },
-      { status: 502 },
-    );
   }
 
-  // --- Get user (demo for now) -----------------------------------------------
-  // TODO: Replace getDemoUser() with actual authenticated user from session
-  const user = await getDemoUser();
+  // ── Test connection ───────────────────────────────────────────────────────
+  const testResult = await testN8nConnection(baseUrl as string, {
+    authType: at,
+    apiKey: typeof apiKey === "string" ? apiKey : undefined,
+    username: typeof username === "string" ? username : undefined,
+    password: typeof password === "string" ? password : undefined,
+  });
 
-  // --- Encrypt API key & upsert connection ----------------------------------
+  if (!testResult.ok) {
+    console.warn("[POST /api/connections/n8n] test failed:", testResult);
+    const httpStatus = testResult.status ?? 502;
+    return NextResponse.json(testResult, {
+      status: httpStatus > 499 ? 502 : httpStatus < 400 ? 422 : httpStatus,
+    });
+  }
+
+  // ── Save to DB ────────────────────────────────────────────────────────────
+  const user = await getDemoUser();
+  const normalized = normalizeBaseUrl(baseUrl as string);
+
   try {
-    const encryptedApiKey = encrypt(apiKey);
+    // Build config blob — secrets are encrypted, everything else is plain
+    const config: Record<string, string> = {
+      baseUrl: normalized,
+      authType: at,
+      apiPath: testResult.apiPath ?? (at === "apiKey" ? "/api/v1" : "/rest"),
+    };
+
+    if (at === "apiKey") {
+      config.encryptedApiKey = encrypt(apiKey as string);
+    } else {
+      config.encryptedUsername = encrypt(username as string);
+      config.encryptedPassword = encrypt(password as string);
+    }
 
     const connection = await prisma.connection.upsert({
-      where: {
-        userId_tool: { userId: user.id, tool: "N8N" },
-      },
-      update: {
-        config: { baseUrl: normalizedUrl, encryptedApiKey },
-        status: "ACTIVE",
-      },
-      create: {
-        userId: user.id,
-        tool: "N8N",
-        config: { baseUrl: normalizedUrl, encryptedApiKey },
-        status: "ACTIVE",
-      },
+      where: { userId_tool: { userId: user.id, tool: "N8N" } },
+      update: { config, status: "ACTIVE" },
+      create: { userId: user.id, tool: "N8N", config, status: "ACTIVE" },
     });
 
     return NextResponse.json({
-      success: true,
+      ok: true,
       connectionId: connection.id,
       status: connection.status,
     });
   } catch (err: unknown) {
     console.error("[POST /api/connections/n8n] DB error:", err);
     return NextResponse.json(
-      { error: "Failed to save connection" },
+      { ok: false, code: "N8N_ERROR", message: "Failed to save connection." },
       { status: 500 },
     );
   }
