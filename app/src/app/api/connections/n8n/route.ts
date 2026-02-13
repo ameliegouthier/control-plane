@@ -96,10 +96,24 @@ export async function POST(req: NextRequest) {
       );
     }
   } catch (err: unknown) {
-    const msg =
-      err instanceof Error ? err.message : "Cannot reach n8n at this URL";
+    console.error("[POST /api/connections/n8n] test fetch failed:", {
+      url: `${normalizedUrl}/api/v1/workflows?limit=1`,
+      error: err,
+    });
+    const raw = err instanceof Error ? err.message : String(err);
+    // Provide a user-friendly message while keeping the raw error for debugging
+    let userMsg = `Cannot reach n8n at ${normalizedUrl}`;
+    if (raw.includes("fetch failed") || raw.includes("ECONNREFUSED")) {
+      userMsg += " — make sure the URL is publicly accessible (not localhost)";
+    } else if (raw.includes("certificate") || raw.includes("SSL")) {
+      userMsg += " — SSL/TLS certificate error";
+    } else if (raw.includes("ENOTFOUND")) {
+      userMsg += " — hostname not found (check the URL)";
+    } else if (raw.includes("timeout") || raw.includes("AbortError")) {
+      userMsg += " — request timed out after 10 seconds";
+    }
     return NextResponse.json(
-      { error: `Connection failed: ${msg}` },
+      { error: userMsg, detail: raw },
       { status: 502 },
     );
   }

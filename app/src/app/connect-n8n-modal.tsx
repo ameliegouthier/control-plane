@@ -55,7 +55,10 @@ export default function ConnectN8nModal({
 
         if (!res.ok) {
           setStatus("error");
-          setErrorMsg(data.error ?? "Unknown error");
+          // Show main error, and append detail if present (for debugging)
+          const msg = data.error ?? "Unknown error";
+          const detail = data.detail ? `\n(${data.detail})` : "";
+          setErrorMsg(`${msg}${detail}`);
           return;
         }
 
