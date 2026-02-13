@@ -5,9 +5,22 @@ import type { Workflow } from "./workflow-helpers";
 // Force Next.js to treat this page as fully dynamic (no SSG/cache)
 export const dynamic = "force-dynamic";
 
-const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "";
 
 export default async function Home() {
+  // If NEXT_PUBLIC_SITE_URL is not set, skip all server-side fetches
+  // and render the Dashboard in "not connected" state.
+  if (!BASE) {
+    console.warn("[page] NEXT_PUBLIC_SITE_URL is not set — skipping API calls");
+    return (
+      <Dashboard
+        workflows={[]}
+        error={null}
+        initialN8nConnected={false}
+      />
+    );
+  }
+
   let workflows: Workflow[] = [];
   let error: string | null = null;
   let n8nConnected = false;
@@ -17,9 +30,12 @@ export default async function Home() {
     const connRes = await fetch(`${BASE}/api/connections/n8n`, {
       cache: "no-store",
     });
-    const connJson = await connRes.json();
-    n8nConnected = connJson.connected === true;
-  } catch {
+    if (connRes.ok) {
+      const connJson = await connRes.json();
+      n8nConnected = connJson.connected === true;
+    }
+  } catch (err) {
+    console.error("[page] connection check failed:", err);
     // Connection check failed — treat as not connected
   }
 
@@ -40,12 +56,12 @@ export default async function Home() {
       const res = await fetch(`${BASE}/api/workflows`, {
         cache: "no-store",
       });
-      const json = await res.json();
-
-      if (!res.ok) {
-        error = json.error ?? "Failed to fetch workflows";
-      } else {
+      if (res.ok) {
+        const json = await res.json();
         workflows = json.data ?? [];
+      } else {
+        const json = await res.json().catch(() => ({}));
+        error = (json as Record<string, string>).error ?? "Failed to fetch workflows";
       }
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : "Could not reach API";
