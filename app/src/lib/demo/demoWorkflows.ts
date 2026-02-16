@@ -1,168 +1,591 @@
 /**
  * Demo mode for MVP unblocker.
  *
- * Static sample workflows that let us build/test the full UI
- * without a live n8n connection. Remove when real data flows.
+ * Simulates the n8n REST API response: GET /rest/workflows
+ * Rich demo dataset with realistic workflows, duplicates, and intentional errors.
+ * Remove when real data flows.
  */
 
 import type { Workflow } from "@/app/workflow-helpers";
 
-export const DEMO_WORKFLOWS: Workflow[] = [
-  // ── 1. Lead capture webhook (3 nodes) ────────────────────────
-  {
-    id: "demo-1",
-    name: "Lead Capture — Webhook to CRM",
-    active: true,
-    updatedAt: "2026-02-10T14:30:00Z",
-    createdAt: "2026-01-15T09:00:00Z",
-    nodes: [
-      {
-        id: "n1",
-        name: "Webhook",
-        type: "n8n-nodes-base.webhook",
-        position: [250, 300],
-        parameters: { path: "/new-lead", httpMethod: "POST", responseMode: "onReceived" },
-      },
-      {
-        id: "n2",
-        name: "Set Fields",
-        type: "n8n-nodes-base.set",
-        position: [450, 300],
-        parameters: {},
-      },
-      {
-        id: "n3",
-        name: "HubSpot — Create Contact",
-        type: "n8n-nodes-base.hubspot",
-        position: [650, 300],
-        parameters: { operation: "create", resource: "contact" },
-      },
-    ],
-    connections: {
-      Webhook: { main: [[{ node: "Set Fields", type: "main", index: 0 }]] },
-      "Set Fields": {
-        main: [[{ node: "HubSpot — Create Contact", type: "main", index: 0 }]],
-      },
-    },
-  },
+// ─── Raw n8n-like types ──────────────────────────────────────────────────────
 
-  // ── 2. CRM Sync with branching (6 nodes) ────────────────────
-  {
-    id: "demo-2",
-    name: "Daily CRM Sync + Alerts",
-    active: true,
-    updatedAt: "2026-02-12T08:15:00Z",
-    createdAt: "2026-01-20T11:00:00Z",
-    nodes: [
-      {
-        id: "n1",
-        name: "Schedule Trigger",
-        type: "n8n-nodes-base.scheduleTrigger",
-        position: [200, 300],
-        parameters: {
-          rule: { interval: [{ field: "hours", hoursInterval: 1 }] },
+export type DemoN8NWorkflow = {
+  id: string;
+  name: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  nodes: Array<{
+    id: string;
+    name: string;
+    type: string;
+    parameters?: Record<string, unknown>;
+    disabled?: boolean;
+    notes?: string;
+    credentials?: Record<string, unknown>;
+  }>;
+  connections: Record<string, unknown>;
+  settings?: Record<string, unknown>;
+  tags?: string[];
+  __demo?: {
+    expectedErrors?: string[];
+    duplicateGroup?: string;
+    duplicateHint?: string;
+  };
+};
+
+// ─── Raw demo response ───────────────────────────────────────────────────────
+
+export const N8N_REST_WORKFLOWS_RESPONSE: {
+  data: DemoN8NWorkflow[];
+  nextCursor?: string;
+} = {
+  data: [
+    // 1) MARKETING – Lead magnet -> nurture -> CRM
+    {
+      id: "101",
+      name: "Lead Magnet → Email Nurture → HubSpot Sync",
+      active: true,
+      createdAt: "2026-02-01T10:00:00.000Z",
+      updatedAt: "2026-02-10T09:00:00.000Z",
+      tags: ["marketing", "crm"],
+      nodes: [
+        {
+          id: "n1",
+          name: "Webhook - Lead Form",
+          type: "n8n-nodes-base.webhook",
+          parameters: { path: "lead-form", httpMethod: "POST" },
+        },
+        {
+          id: "n2",
+          name: "Validate Email",
+          type: "n8n-nodes-base.if",
+          parameters: {
+            rules: [{ field: "email", operation: "isEmail" }],
+          },
+        },
+        {
+          id: "n3",
+          name: "Add/Update Contact in HubSpot",
+          type: "n8n-nodes-base.hubspot",
+          parameters: { resource: "contact", operation: "upsert" },
+          credentials: { hubspotOAuth2Api: { id: "cred_hubspot_1" } },
+        },
+        {
+          id: "n4",
+          name: "Send Welcome Email (Gmail)",
+          type: "n8n-nodes-base.gmail",
+          parameters: {
+            operation: "send",
+            subject: "Welcome!",
+            to: "={{$json.email}}",
+          },
+          credentials: { gmailOAuth2: { id: "cred_gmail_1" } },
+        },
+        {
+          id: "n5",
+          name: "Tag Invalid Lead",
+          type: "n8n-nodes-base.hubspot",
+          parameters: {
+            resource: "contact",
+            operation: "update",
+            properties: { lifecycleStage: "other" },
+          },
+          credentials: { hubspotOAuth2Api: { id: "cred_hubspot_1" } },
+        },
+      ],
+      connections: {
+        "Webhook - Lead Form": {
+          main: [
+            [{ node: "Validate Email", type: "main", index: 0 }],
+          ],
+        },
+        "Validate Email": {
+          main: [
+            [
+              {
+                node: "Add/Update Contact in HubSpot",
+                type: "main",
+                index: 0,
+              },
+            ],
+            [{ node: "Tag Invalid Lead", type: "main", index: 0 }],
+          ],
+        },
+        "Add/Update Contact in HubSpot": {
+          main: [
+            [
+              {
+                node: "Send Welcome Email (Gmail)",
+                type: "main",
+                index: 0,
+              },
+            ],
+          ],
         },
       },
-      {
-        id: "n2",
-        name: "Fetch Contacts",
-        type: "n8n-nodes-base.httpRequest",
-        position: [400, 300],
-        parameters: { url: "https://api.example.com/contacts", method: "GET" },
-      },
-      {
-        id: "n3",
-        name: "Has Changes?",
-        type: "n8n-nodes-base.if",
-        position: [600, 300],
-        parameters: {},
-      },
-      {
-        id: "n4",
-        name: "Update Google Sheet",
-        type: "n8n-nodes-base.googleSheets",
-        position: [800, 200],
-        parameters: { operation: "append" },
-      },
-      {
-        id: "n5",
-        name: "Notify Slack",
-        type: "n8n-nodes-base.slack",
-        position: [800, 400],
-        parameters: { channel: "#crm-updates" },
-      },
-      {
-        id: "n6",
-        name: "Log — No Changes",
-        type: "n8n-nodes-base.noOp",
-        position: [800, 500],
-        parameters: {},
-      },
-    ],
-    connections: {
-      "Schedule Trigger": {
-        main: [[{ node: "Fetch Contacts", type: "main", index: 0 }]],
-      },
-      "Fetch Contacts": {
-        main: [[{ node: "Has Changes?", type: "main", index: 0 }]],
-      },
-      "Has Changes?": {
-        main: [
-          [
-            { node: "Update Google Sheet", type: "main", index: 0 },
-            { node: "Notify Slack", type: "main", index: 0 },
+    },
+
+    // 2) CRM – Stripe -> Notion -> Slack
+    {
+      id: "102",
+      name: "Stripe Payment → Notion CRM → Slack Alert",
+      active: true,
+      createdAt: "2026-01-15T08:30:00.000Z",
+      updatedAt: "2026-02-05T11:12:00.000Z",
+      tags: ["crm", "finance", "ops"],
+      nodes: [
+        {
+          id: "n1",
+          name: "Stripe Trigger",
+          type: "n8n-nodes-base.stripeTrigger",
+          parameters: { event: "payment_intent.succeeded" },
+          credentials: { stripeApi: { id: "cred_stripe_1" } },
+        },
+        {
+          id: "n2",
+          name: "Find Customer in Notion",
+          type: "n8n-nodes-base.notion",
+          parameters: {
+            resource: "databasePage",
+            operation: "getAll",
+            filter: { email: "={{$json.customer_email}}" },
+          },
+          credentials: { notionApi: { id: "cred_notion_1" } },
+        },
+        {
+          id: "n3",
+          name: "Update Subscription Status",
+          type: "n8n-nodes-base.notion",
+          parameters: {
+            resource: "databasePage",
+            operation: "update",
+            fields: { status: "Active" },
+          },
+          credentials: { notionApi: { id: "cred_notion_1" } },
+        },
+        {
+          id: "n4",
+          name: "Notify Sales (Slack)",
+          type: "n8n-nodes-base.slack",
+          parameters: {
+            operation: "post",
+            channel: "#sales",
+            text: "New paying customer",
+          },
+          credentials: { slackOAuth2Api: { id: "cred_slack_1" } },
+        },
+      ],
+      connections: {
+        "Stripe Trigger": {
+          main: [
+            [
+              {
+                node: "Find Customer in Notion",
+                type: "main",
+                index: 0,
+              },
+            ],
           ],
-          [{ node: "Log — No Changes", type: "main", index: 0 }],
+        },
+        "Find Customer in Notion": {
+          main: [
+            [
+              {
+                node: "Update Subscription Status",
+                type: "main",
+                index: 0,
+              },
+            ],
+          ],
+        },
+        "Update Subscription Status": {
+          main: [
+            [{ node: "Notify Sales (Slack)", type: "main", index: 0 }],
+          ],
+        },
+      },
+    },
+
+    // 3) TECH – GitHub CI failure -> Linear + Slack
+    {
+      id: "103",
+      name: "GitHub CI Failure → Linear Issue Creation",
+      active: false,
+      createdAt: "2026-02-03T14:00:00.000Z",
+      updatedAt: "2026-02-12T18:00:00.000Z",
+      tags: ["tech", "devops"],
+      nodes: [
+        {
+          id: "n1",
+          name: "GitHub Webhook",
+          type: "n8n-nodes-base.githubTrigger",
+          parameters: { events: ["workflow_run"] },
+          credentials: { githubOAuth2Api: { id: "cred_github_1" } },
+        },
+        {
+          id: "n2",
+          name: "Check CI Status",
+          type: "n8n-nodes-base.if",
+          parameters: {
+            rules: [
+              {
+                field: "conclusion",
+                operation: "equals",
+                value: "failure",
+              },
+            ],
+          },
+        },
+        {
+          id: "n3",
+          name: "Create Linear Issue",
+          type: "n8n-nodes-base.linear",
+          parameters: {
+            operation: "create",
+            title: "CI failed on main",
+            teamId: "TEAM_1",
+          },
+          credentials: { linearApi: { id: "cred_linear_1" } },
+        },
+        {
+          id: "n4",
+          name: "Notify Dev Channel",
+          type: "n8n-nodes-base.slack",
+          parameters: {
+            operation: "post",
+            channel: "#dev",
+            text: "CI failed → issue created in Linear",
+          },
+          credentials: { slackOAuth2Api: { id: "cred_slack_1" } },
+        },
+      ],
+      connections: {
+        "GitHub Webhook": {
+          main: [
+            [{ node: "Check CI Status", type: "main", index: 0 }],
+          ],
+        },
+        "Check CI Status": {
+          main: [
+            [{ node: "Create Linear Issue", type: "main", index: 0 }],
+            [],
+          ],
+        },
+        "Create Linear Issue": {
+          main: [
+            [{ node: "Notify Dev Channel", type: "main", index: 0 }],
+          ],
+        },
+      },
+    },
+
+    // 4) AI CONTENT – OpenAI -> SEO -> WordPress -> Slack
+    {
+      id: "104",
+      name: "AI Blog Generator → SEO → Publish",
+      active: true,
+      createdAt: "2026-02-08T09:00:00.000Z",
+      updatedAt: "2026-02-12T13:45:00.000Z",
+      tags: ["ai", "marketing", "content"],
+      nodes: [
+        {
+          id: "n1",
+          name: "Content Brief Webhook",
+          type: "n8n-nodes-base.webhook",
+          parameters: { path: "content-brief", httpMethod: "POST" },
+        },
+        {
+          id: "n2",
+          name: "Generate Article (OpenAI)",
+          type: "n8n-nodes-base.openai",
+          parameters: {
+            operation: "chat",
+            model: "gpt-4o-mini",
+            prompt: "={{$json.brief}}",
+          },
+          credentials: { openAiApi: { id: "cred_openai_1" } },
+        },
+        {
+          id: "n3",
+          name: "SEO Keyword Extraction",
+          type: "n8n-nodes-base.function",
+          parameters: { code: "return items;" },
+        },
+        {
+          id: "n4",
+          name: "Publish to WordPress",
+          type: "n8n-nodes-base.wordpress",
+          parameters: {
+            operation: "create",
+            title: "={{$json.title}}",
+            status: "draft",
+          },
+          credentials: { wordpressApi: { id: "cred_wp_1" } },
+        },
+        {
+          id: "n5",
+          name: "Notify Marketing",
+          type: "n8n-nodes-base.slack",
+          parameters: {
+            operation: "post",
+            channel: "#marketing",
+            text: "Draft ready in WordPress",
+          },
+          credentials: { slackOAuth2Api: { id: "cred_slack_1" } },
+        },
+      ],
+      connections: {
+        "Content Brief Webhook": {
+          main: [
+            [
+              {
+                node: "Generate Article (OpenAI)",
+                type: "main",
+                index: 0,
+              },
+            ],
+          ],
+        },
+        "Generate Article (OpenAI)": {
+          main: [
+            [
+              {
+                node: "SEO Keyword Extraction",
+                type: "main",
+                index: 0,
+              },
+            ],
+          ],
+        },
+        "SEO Keyword Extraction": {
+          main: [
+            [
+              {
+                node: "Publish to WordPress",
+                type: "main",
+                index: 0,
+              },
+            ],
+          ],
+        },
+        "Publish to WordPress": {
+          main: [
+            [{ node: "Notify Marketing", type: "main", index: 0 }],
+          ],
+        },
+      },
+    },
+
+    // 5) DUPLICATE A – Marketing report (part 1)
+    {
+      id: "201",
+      name: "Weekly Marketing Report → Slack Digest",
+      active: true,
+      createdAt: "2026-01-20T09:00:00.000Z",
+      updatedAt: "2026-02-11T07:10:00.000Z",
+      tags: ["marketing", "reporting"],
+      __demo: {
+        duplicateGroup: "dup_marketing_report_1",
+        duplicateHint: "Same logic as wf 202 with minor text changes",
+      },
+      nodes: [
+        {
+          id: "n1",
+          name: "Cron Weekly",
+          type: "n8n-nodes-base.cron",
+          parameters: { schedule: "0 8 * * 1" },
+        },
+        {
+          id: "n2",
+          name: "Fetch GA4 Metrics",
+          type: "n8n-nodes-base.httpRequest",
+          parameters: {
+            url: "https://analytics.example.com/ga4/metrics",
+            method: "GET",
+          },
+        },
+        {
+          id: "n3",
+          name: "Format Digest",
+          type: "n8n-nodes-base.function",
+          parameters: { code: "return items;" },
+        },
+        {
+          id: "n4",
+          name: "Post to Slack",
+          type: "n8n-nodes-base.slack",
+          parameters: {
+            channel: "#marketing",
+            text: "Weekly report: ...",
+          },
+          credentials: { slackOAuth2Api: { id: "cred_slack_1" } },
+        },
+      ],
+      connections: {
+        "Cron Weekly": {
+          main: [
+            [{ node: "Fetch GA4 Metrics", type: "main", index: 0 }],
+          ],
+        },
+        "Fetch GA4 Metrics": {
+          main: [
+            [{ node: "Format Digest", type: "main", index: 0 }],
+          ],
+        },
+        "Format Digest": {
+          main: [[{ node: "Post to Slack", type: "main", index: 0 }]],
+        },
+      },
+    },
+
+    // 6) DUPLICATE B – same workflow with tiny diffs (duplication testing)
+    {
+      id: "202",
+      name: "Weekly Marketing Report → Slack Digest (Copy)",
+      active: true,
+      createdAt: "2026-01-21T09:05:00.000Z",
+      updatedAt: "2026-02-11T07:11:00.000Z",
+      tags: ["marketing", "reporting"],
+      __demo: {
+        duplicateGroup: "dup_marketing_report_1",
+        duplicateHint:
+          "Duplicate of wf 201: same node types & connections; name differs",
+      },
+      nodes: [
+        {
+          id: "n1",
+          name: "Cron Weekly",
+          type: "n8n-nodes-base.cron",
+          parameters: { schedule: "0 8 * * 1" },
+        },
+        {
+          id: "n2",
+          name: "Fetch GA4 Metrics",
+          type: "n8n-nodes-base.httpRequest",
+          parameters: {
+            url: "https://analytics.example.com/ga4/metrics",
+            method: "GET",
+          },
+        },
+        {
+          id: "n3",
+          name: "Format Digest",
+          type: "n8n-nodes-base.function",
+          parameters: { code: "return items;" },
+        },
+        {
+          id: "n4",
+          name: "Post to Slack",
+          type: "n8n-nodes-base.slack",
+          parameters: {
+            channel: "#marketing",
+            text: "Weekly report (same content)...",
+          },
+          credentials: { slackOAuth2Api: { id: "cred_slack_1" } },
+        },
+      ],
+      connections: {
+        "Cron Weekly": {
+          main: [
+            [{ node: "Fetch GA4 Metrics", type: "main", index: 0 }],
+          ],
+        },
+        "Fetch GA4 Metrics": {
+          main: [
+            [{ node: "Format Digest", type: "main", index: 0 }],
+          ],
+        },
+        "Format Digest": {
+          main: [[{ node: "Post to Slack", type: "main", index: 0 }]],
+        },
+      },
+    },
+
+    // 7) ERROR WORKFLOW – intentionally broken
+    {
+      id: "999",
+      name: "Broken: CRM Sync (for error detection tests)",
+      active: true,
+      createdAt: "2026-02-12T10:00:00.000Z",
+      updatedAt: "2026-02-13T08:00:00.000Z",
+      tags: ["broken", "crm"],
+      __demo: {
+        expectedErrors: [
+          "Missing credentials for Salesforce node",
+          "Connections reference a non-existent node",
+          "Webhook trigger missing required parameters (path/httpMethod)",
         ],
       },
+      nodes: [
+        {
+          id: "n1",
+          name: "Webhook Trigger (Broken)",
+          type: "n8n-nodes-base.webhook",
+          parameters: { path: "", httpMethod: "" },
+          notes: "Intentionally empty path/method",
+        },
+        {
+          id: "n2",
+          name: "Upsert Salesforce Lead (Missing Creds)",
+          type: "n8n-nodes-base.salesforce",
+          parameters: { resource: "lead", operation: "upsert" },
+        },
+        {
+          id: "n3",
+          name: "Notify Ops",
+          type: "n8n-nodes-base.slack",
+          parameters: { channel: "#ops", text: "Sync done" },
+          credentials: { slackOAuth2Api: { id: "cred_slack_1" } },
+        },
+      ],
+      connections: {
+        "Webhook Trigger (Broken)": {
+          main: [
+            [
+              {
+                node: "Upsert Salesforce Lead (Missing Creds)",
+                type: "main",
+                index: 0,
+              },
+            ],
+          ],
+        },
+        "Upsert Salesforce Lead (Missing Creds)": {
+          main: [
+            [
+              { node: "Notify Ops", type: "main", index: 0 },
+              { node: "NonExistent Node", type: "main", index: 0 },
+            ],
+          ],
+        },
+      },
     },
-  },
+  ],
+  nextCursor: undefined,
+};
 
-  // ── 3. Stripe invoice log (4 nodes) ─────────────────────────
-  {
-    id: "demo-3",
-    name: "Stripe Invoice → Notion Log",
-    active: false,
-    updatedAt: "2026-02-08T17:45:00Z",
-    createdAt: "2026-02-01T10:30:00Z",
-    nodes: [
-      {
-        id: "n1",
-        name: "Webhook",
-        type: "n8n-nodes-base.webhook",
-        position: [250, 300],
-        parameters: { path: "/stripe-webhook", httpMethod: "POST" },
-      },
-      {
-        id: "n2",
-        name: "Parse Payload",
-        type: "n8n-nodes-base.code",
-        position: [450, 300],
-        parameters: {},
-      },
-      {
-        id: "n3",
-        name: "Create Notion Page",
-        type: "n8n-nodes-base.notion",
-        position: [650, 300],
-        parameters: { operation: "create" },
-      },
-      {
-        id: "n4",
-        name: "Respond OK",
-        type: "n8n-nodes-base.respondToWebhook",
-        position: [850, 300],
-        parameters: {},
-      },
-    ],
-    connections: {
-      Webhook: { main: [[{ node: "Parse Payload", type: "main", index: 0 }]] },
-      "Parse Payload": {
-        main: [[{ node: "Create Notion Page", type: "main", index: 0 }]],
-      },
-      "Create Notion Page": {
-        main: [[{ node: "Respond OK", type: "main", index: 0 }]],
-      },
-    },
-  },
-];
+// ─── Mapper: DemoN8NWorkflow → Workflow (used by dashboard) ─────────────────
+
+function toDashboardWorkflow(raw: DemoN8NWorkflow): Workflow {
+  return {
+    id: raw.id,
+    name: raw.name,
+    active: raw.active,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+    nodes: raw.nodes.map((n, i) => ({
+      id: n.id,
+      name: n.name,
+      type: n.type,
+      position: [250 + i * 200, 300] as [number, number],
+      ...(n.parameters ? { parameters: n.parameters } : {}),
+    })),
+    connections: raw.connections as Workflow["connections"],
+  };
+}
+
+/** Typed workflows ready for the dashboard UI */
+export const DEMO_WORKFLOWS: Workflow[] =
+  N8N_REST_WORKFLOWS_RESPONSE.data.map(toDashboardWorkflow);
