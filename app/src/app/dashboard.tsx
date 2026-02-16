@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   type Workflow,
@@ -16,6 +16,12 @@ import {
   generateDraftIntent,
 } from "../lib/intent";
 import ConnectN8nModal from "./connect-n8n-modal";
+import { DEMO_WORKFLOWS } from "../lib/demo/demoWorkflows";
+import {
+  isDemoMode,
+  enableDemoMode,
+  disableDemoMode,
+} from "../lib/demo/demoMode";
 
 // ─── Tool Sidebar ────────────────────────────────────────────────────────────
 
@@ -30,11 +36,15 @@ function ToolSidebar({
   onSelect,
   onConnectN8n,
   n8nConnected,
+  isDemo,
+  onDisableDemo,
 }: {
   selected: string;
   onSelect: (id: string) => void;
   onConnectN8n: () => void;
   n8nConnected: boolean;
+  isDemo: boolean;
+  onDisableDemo: () => void;
 }) {
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-zinc-200 bg-white">
@@ -75,7 +85,7 @@ function ToolSidebar({
                   Soon
                 </span>
               )}
-              {tool.id === "n8n" && (
+              {tool.id === "n8n" && !isDemo && (
                 <span
                   role="button"
                   tabIndex={0}
@@ -106,6 +116,29 @@ function ToolSidebar({
           );
         })}
       </nav>
+
+      {/* Demo mode badge */}
+      {isDemo && (
+        <div className="mx-3 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+            <span className="text-[11px] font-semibold text-amber-700">
+              Demo mode
+            </span>
+          </div>
+          <p className="mt-0.5 text-[10px] leading-snug text-amber-600/80">
+            Using sample data.
+          </p>
+          <button
+            type="button"
+            onClick={onDisableDemo}
+            className="mt-1.5 text-[10px] font-medium text-amber-700 underline decoration-amber-300 underline-offset-2 transition hover:text-amber-900"
+          >
+            Disable demo mode
+          </button>
+        </div>
+      )}
+
       <div className="mt-auto border-t border-zinc-200 p-4">
         <p className="text-[11px] text-zinc-400">MVP v0.1</p>
       </div>
@@ -682,38 +715,65 @@ export default function Dashboard({
     null
   );
 
-  // ─── Connect n8n modal state ──────────────────────────────────
+  // ─── Connect n8n modal ───────────────────────────────────────
   const [connectModalOpen, setConnectModalOpen] = useState(false);
   const [n8nConnected, setN8nConnected] = useState(initialN8nConnected);
 
-  const handleConnectSuccess = useCallback(() => {
-    setN8nConnected(true);
-    // Re-render the server component (page.tsx) so workflows get fetched from DB
+  // ─── Demo mode (persisted in localStorage) ──────────────────
+  const [demoActive, setDemoActive] = useState(false);
+
+  // Hydrate demo state from localStorage on mount
+  useEffect(() => {
+    if (isDemoMode()) {
+      setDemoActive(true);
+    }
+  }, []);
+
+  const handleEnableDemo = useCallback(() => {
+    enableDemoMode();
+    setDemoActive(true);
+    setSelectedWorkflow(null);
+  }, []);
+
+  const handleDisableDemo = useCallback(() => {
+    disableDemoMode();
+    setDemoActive(false);
+    setSelectedWorkflow(null);
     router.refresh();
   }, [router]);
 
-  // Intent state: stores current (possibly edited) intents keyed by workflow id
+  const handleConnectSuccess = useCallback(() => {
+    setN8nConnected(true);
+    // If user connects for real, exit demo mode
+    disableDemoMode();
+    setDemoActive(false);
+    router.refresh();
+  }, [router]);
+
+  // Resolve active workflows: demo data takes priority when demo mode is on
+  const activeWorkflows = demoActive ? DEMO_WORKFLOWS : workflows;
+  const isConnectedOrDemo = n8nConnected || demoActive;
+
+  // ─── Intent state ───────────────────────────────────────────
   const [intentOverrides, setIntentOverrides] = useState<
     Record<string, WorkflowIntent>
   >({});
 
-  // Compute draft intents for all workflows (memoized)
   const draftIntents = useMemo(() => {
     const map: Record<string, WorkflowIntent> = {};
-    for (const wf of workflows) {
+    for (const wf of activeWorkflows) {
       map[wf.id] = generateDraftIntent(wf);
     }
     return map;
-  }, [workflows]);
+  }, [activeWorkflows]);
 
-  // Merged intents: overrides take precedence over drafts
   const intents = useMemo(() => {
     const map: Record<string, WorkflowIntent> = {};
-    for (const wf of workflows) {
+    for (const wf of activeWorkflows) {
       map[wf.id] = intentOverrides[wf.id] ?? draftIntents[wf.id];
     }
     return map;
-  }, [workflows, draftIntents, intentOverrides]);
+  }, [activeWorkflows, draftIntents, intentOverrides]);
 
   const handleIntentUpdate = useCallback(
     (next: WorkflowIntent) => {
@@ -725,7 +785,6 @@ export default function Dashboard({
 
   const handleIntentReset = useCallback(() => {
     if (!selectedWorkflow) return;
-    // Remove override so it falls back to draft
     setIntentOverrides((prev) => {
       const next = { ...prev };
       delete next[selectedWorkflow.id];
@@ -737,6 +796,28 @@ export default function Dashboard({
     ? intents[selectedWorkflow.id] ?? null
     : null;
 
+  // ─── Shared "Use demo data" button ──────────────────────────
+  const DemoButton = () => (
+    <button
+      type="button"
+      onClick={handleEnableDemo}
+      className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+    >
+      <svg
+        className="h-4 w-4 text-zinc-400"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M2 4h12M2 8h12M2 12h8" />
+      </svg>
+      Use demo data
+    </button>
+  );
+
   return (
     <div className="flex h-screen overflow-hidden bg-white text-zinc-900">
       <ToolSidebar
@@ -744,6 +825,8 @@ export default function Dashboard({
         onSelect={setActiveTool}
         onConnectN8n={() => setConnectModalOpen(true)}
         n8nConnected={n8nConnected}
+        isDemo={demoActive}
+        onDisableDemo={handleDisableDemo}
       />
       <ConnectN8nModal
         open={connectModalOpen}
@@ -751,15 +834,20 @@ export default function Dashboard({
         onSuccess={handleConnectSuccess}
       />
 
-      {!n8nConnected ? (
+      {/* Empty state: not connected and not in demo mode */}
+      {!isConnectedOrDemo ? (
         <div className="flex flex-1 items-center justify-center">
           <div className="max-w-sm text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-2xl">
               ⚡
             </div>
-            <h2 className="text-lg font-semibold text-zinc-900">Connect n8n to get started</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">
+              Connect n8n to get started
+            </h2>
             <p className="mt-2 text-sm text-zinc-500">
-              Click the <span className="font-medium text-indigo-600">+</span> next to n8n in the sidebar to connect your instance.
+              Click the{" "}
+              <span className="font-medium text-indigo-600">+</span> next to
+              n8n in the sidebar to connect your instance.
             </p>
             <button
               type="button"
@@ -768,22 +856,38 @@ export default function Dashboard({
             >
               Connect n8n
             </button>
+
+            <div className="mt-6 border-t border-zinc-100 pt-5">
+              <p className="text-xs text-zinc-400">
+                No n8n connection? Continue with sample data.
+              </p>
+              <DemoButton />
+            </div>
           </div>
         </div>
-      ) : error ? (
+      ) : /* Error state: connected but API failed — also offer demo fallback */
+      error && !demoActive ? (
         <div className="flex flex-1 items-center justify-center">
-          <div className="max-w-sm rounded-lg border border-red-200 bg-red-50 p-6 text-center text-sm text-red-600">
-            {error}
+          <div className="max-w-sm text-center">
+            <div className="rounded-lg border border-red-200 bg-red-50 p-5 text-sm text-red-600">
+              {error}
+            </div>
+            <div className="mt-5">
+              <p className="text-xs text-zinc-400">
+                Connection issue? Try demo data instead.
+              </p>
+              <DemoButton />
+            </div>
           </div>
         </div>
       ) : (
         <>
           <WorkflowListPanel
-            workflows={workflows}
+            workflows={activeWorkflows}
             selectedId={selectedWorkflow?.id ?? null}
             onSelect={setSelectedWorkflow}
             intents={intents}
-            isConnected={n8nConnected}
+            isConnected={isConnectedOrDemo}
           />
           <DetailPanel
             workflow={selectedWorkflow}
