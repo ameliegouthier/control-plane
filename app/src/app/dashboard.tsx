@@ -704,10 +704,12 @@ export default function Dashboard({
   workflows,
   error,
   initialN8nConnected = false,
+  initialDemoMode = false,
 }: {
   workflows: Workflow[];
   error: string | null;
   initialN8nConnected?: boolean;
+  initialDemoMode?: boolean;
 }) {
   const router = useRouter();
   const [activeTool, setActiveTool] = useState("n8n");
@@ -719,15 +721,15 @@ export default function Dashboard({
   const [connectModalOpen, setConnectModalOpen] = useState(false);
   const [n8nConnected, setN8nConnected] = useState(initialN8nConnected);
 
-  // ─── Demo mode (persisted in localStorage) ──────────────────
-  const [demoActive, setDemoActive] = useState(false);
+  // ─── Demo mode (server env flag OR localStorage) ────────────
+  const [demoActive, setDemoActive] = useState(initialDemoMode);
 
-  // Hydrate demo state from localStorage on mount
+  // Hydrate demo state from localStorage on mount (client-side fallback)
   useEffect(() => {
-    if (isDemoMode()) {
+    if (!initialDemoMode && isDemoMode()) {
       setDemoActive(true);
     }
-  }, []);
+  }, [initialDemoMode]);
 
   const handleEnableDemo = useCallback(() => {
     enableDemoMode();

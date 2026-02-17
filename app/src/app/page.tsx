@@ -5,11 +5,26 @@ import { getN8nConnection } from "@/lib/n8n-connection";
 import { getDemoUser } from "@/lib/demo-user";
 import { prisma } from "@/lib/prisma";
 import { syncN8nWorkflows } from "@/lib/n8n-sync";
+import { DEMO_WORKFLOWS } from "@/lib/demo/demoWorkflows";
 
 // Force Next.js to treat this page as fully dynamic (no SSG/cache)
 export const dynamic = "force-dynamic";
 
+const isServerDemoMode = process.env.DEMO_MODE === "true";
+
 export default async function Home() {
+  // ─── Server-side demo mode: skip DB/n8n entirely ─────────────
+  if (isServerDemoMode) {
+    return (
+      <Dashboard
+        workflows={DEMO_WORKFLOWS}
+        error={null}
+        initialN8nConnected={false}
+        initialDemoMode
+      />
+    );
+  }
+
   let workflows: Workflow[] = [];
   let error: string | null = null;
   let n8nConnected = false;
