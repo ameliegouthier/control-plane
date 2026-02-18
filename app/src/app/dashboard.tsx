@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   type Workflow,
@@ -698,6 +698,31 @@ function DetailPanel({
   );
 }
 
+// ─── Demo Data Button ───────────────────────────────────────────────────────
+
+function DemoDataButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
+    >
+      <svg
+        className="h-4 w-4 text-zinc-400"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M2 4h12M2 8h12M2 12h8" />
+      </svg>
+      Use demo data
+    </button>
+  );
+}
+
 // ─── Dashboard (root client component) ──────────────────────────────────────
 
 export default function Dashboard({
@@ -724,12 +749,14 @@ export default function Dashboard({
   // ─── Demo mode (server env flag OR localStorage) ────────────
   const [demoActive, setDemoActive] = useState(initialDemoMode);
 
-  // Hydrate demo state from localStorage on mount (client-side fallback)
-  useEffect(() => {
+  // Hydrate demo state from localStorage (state-during-render pattern)
+  const [localChecked, setLocalChecked] = useState(false);
+  if (!localChecked && typeof window !== "undefined") {
+    setLocalChecked(true);
     if (!initialDemoMode && isDemoMode()) {
       setDemoActive(true);
     }
-  }, [initialDemoMode]);
+  }
 
   const handleEnableDemo = useCallback(() => {
     enableDemoMode();
@@ -798,28 +825,6 @@ export default function Dashboard({
     ? intents[selectedWorkflow.id] ?? null
     : null;
 
-  // ─── Shared "Use demo data" button ──────────────────────────
-  const DemoButton = () => (
-    <button
-      type="button"
-      onClick={handleEnableDemo}
-      className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50"
-    >
-      <svg
-        className="h-4 w-4 text-zinc-400"
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M2 4h12M2 8h12M2 12h8" />
-      </svg>
-      Use demo data
-    </button>
-  );
-
   return (
     <div className="flex h-screen overflow-hidden bg-white text-zinc-900">
       <ToolSidebar
@@ -863,7 +868,7 @@ export default function Dashboard({
               <p className="text-xs text-zinc-400">
                 No n8n connection? Continue with sample data.
               </p>
-              <DemoButton />
+              <DemoDataButton onClick={handleEnableDemo} />
             </div>
           </div>
         </div>
@@ -878,7 +883,7 @@ export default function Dashboard({
               <p className="text-xs text-zinc-400">
                 Connection issue? Try demo data instead.
               </p>
-              <DemoButton />
+              <DemoDataButton onClick={handleEnableDemo} />
             </div>
           </div>
         </div>

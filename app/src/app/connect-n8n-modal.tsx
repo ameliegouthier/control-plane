@@ -46,16 +46,23 @@ export default function ConnectN8nModal({
   const [detail, setDetail] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 50);
-  }, [open]);
-
-  useEffect(() => {
+  // Reset form state when modal opens (state-during-render pattern)
+  const [prevOpen, setPrevOpen] = useState(false);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setBaseUrl("");
       setStatus("idle");
       setErrorMsg("");
       setDetail("");
+    }
+  }
+
+  // Focus input after modal opens (DOM access belongs in effects)
+  useEffect(() => {
+    if (open) {
+      const timer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(timer);
     }
   }, [open]);
 

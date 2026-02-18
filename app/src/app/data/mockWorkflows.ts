@@ -7,6 +7,8 @@
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+export type WorkflowTool = "n8n" | "zapier" | "make" | "airtable";
+
 export interface OverviewWorkflow {
   id: string;
   name: string;
@@ -16,6 +18,7 @@ export interface OverviewWorkflow {
   hasPublicWebhook?: boolean;
   lastExecutionStatus?: "success" | "error" | null;
   lastExecutionDate?: string | null;
+  tool: WorkflowTool;
 }
 
 export interface OverviewStats {
@@ -49,6 +52,7 @@ export const MOCK_WORKFLOWS: OverviewWorkflow[] = [
     hasPublicWebhook: true,
     lastExecutionStatus: "success",
     lastExecutionDate: "2026-02-16T10:30:00Z",
+    tool: "n8n",
   },
   {
     id: "102",
@@ -59,6 +63,7 @@ export const MOCK_WORKFLOWS: OverviewWorkflow[] = [
     hasPublicWebhook: false,
     lastExecutionStatus: "success",
     lastExecutionDate: "2026-02-17T08:15:00Z",
+    tool: "zapier",
   },
   {
     id: "103",
@@ -68,7 +73,8 @@ export const MOCK_WORKFLOWS: OverviewWorkflow[] = [
     nodesCount: 4,
     hasPublicWebhook: false,
     lastExecutionStatus: "success",
-    lastExecutionDate: "2025-12-01T14:00:00Z", // > 30 days → stale warning
+    lastExecutionDate: "2025-12-01T14:00:00Z",
+    tool: "n8n",
   },
   {
     id: "104",
@@ -79,6 +85,7 @@ export const MOCK_WORKFLOWS: OverviewWorkflow[] = [
     hasPublicWebhook: true,
     lastExecutionStatus: "success",
     lastExecutionDate: "2026-02-15T22:00:00Z",
+    tool: "make",
   },
   {
     id: "201",
@@ -88,6 +95,7 @@ export const MOCK_WORKFLOWS: OverviewWorkflow[] = [
     nodesCount: 4,
     lastExecutionStatus: "success",
     lastExecutionDate: "2026-02-14T09:00:00Z",
+    tool: "n8n",
   },
   {
     id: "202",
@@ -97,6 +105,7 @@ export const MOCK_WORKFLOWS: OverviewWorkflow[] = [
     nodesCount: 4,
     lastExecutionStatus: "success",
     lastExecutionDate: "2026-02-14T09:00:00Z",
+    tool: "n8n",
   },
   {
     id: "999",
@@ -105,8 +114,9 @@ export const MOCK_WORKFLOWS: OverviewWorkflow[] = [
     triggerType: "webhook",
     nodesCount: 3,
     hasPublicWebhook: true,
-    lastExecutionStatus: "error",             // Last run failed → Broken
+    lastExecutionStatus: "error",
     lastExecutionDate: "2026-02-17T06:45:00Z",
+    tool: "n8n",
   },
   {
     id: "300",
@@ -114,8 +124,9 @@ export const MOCK_WORKFLOWS: OverviewWorkflow[] = [
     active: false,
     triggerType: "none",
     nodesCount: 0,
-    lastExecutionStatus: null,                // Never ran
-    lastExecutionDate: null,                  // → Inactive warning
+    lastExecutionStatus: null,
+    lastExecutionDate: null,
+    tool: "airtable",
   },
 ];
 

@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function HealthPage() {
   return (
     <div style={{ padding: 40, fontFamily: "sans-serif" }}>
@@ -9,7 +11,7 @@ export default function HealthPage() {
         <li>ENCRYPTION_KEY: {process.env.ENCRYPTION_KEY ? "✅ set" : "❌ NOT SET"}</li>
         <li>NODE_ENV: {process.env.NODE_ENV}</li>
       </ul>
-      <p><a href="/">← Go to Dashboard</a></p>
+      <p><Link href="/">← Go to Dashboard</Link></p>
     </div>
   );
 }
