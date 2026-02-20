@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import ConnectN8nModal from "../connect-n8n-modal";
-import { MOCK_WORKFLOWS, type WorkflowTool } from "../data/mockWorkflows";
+import ConnectProviderModal from "../connect-provider-modal";
+import { getAllWorkflowsAsRaw, getAllWorkflows } from "@/lib/repositories/workflowsRepository";
+import type { AutomationProvider } from "@/app/workflow-helpers";
 import {
   type WorkflowWithEnrichment,
   type WorkflowDomain,
@@ -19,7 +20,7 @@ import WorkflowList from "./components/WorkflowList";
 
 // ─── Extended type: workflow + enrichment + tool ─────────────────────────────
 
-type EnrichedWorkflow = WorkflowWithEnrichment & { tool: WorkflowTool };
+type EnrichedWorkflow = WorkflowWithEnrichment & { tool: AutomationProvider };
 
 // ─── Overview Page ───────────────────────────────────────────────────────────
 
@@ -43,13 +44,21 @@ export default function OverviewPage() {
 
   // ─── Enrichment ──────────────────────────────────────────────
 
+  // Get workflows from single source of truth
+  const rawWorkflows = useMemo(() => getAllWorkflowsAsRaw(), []);
+  const workflows = useMemo(() => getAllWorkflows(), []);
+
   const enriched: EnrichedWorkflow[] = useMemo(
     () =>
-      MOCK_WORKFLOWS.map((w) => ({
-        ...w,
-        enrichment: getEnrichmentForWorkflow(w),
-      })),
-    [],
+      rawWorkflows.map((w) => {
+        const workflow = workflows.find((wf) => wf.id === w.id);
+        return {
+          ...w,
+          enrichment: getEnrichmentForWorkflow(w),
+          tool: (workflow?.provider ?? "n8n") as AutomationProvider,
+        };
+      }),
+    [rawWorkflows, workflows],
   );
 
   // ─── Domain counts (always on full dataset) ─────────────────
@@ -113,8 +122,9 @@ export default function OverviewPage() {
   }, []);
 
   const handleExportJson = useCallback(() => {
+    const workflows = getAllWorkflows();
     const blob = new Blob(
-      [JSON.stringify(MOCK_WORKFLOWS, null, 2)],
+      [JSON.stringify(workflows, null, 2)],
       { type: "application/json" },
     );
     const url = URL.createObjectURL(blob);
@@ -135,8 +145,9 @@ export default function OverviewPage() {
         onSelectTool={setSelectedTool}
       />
 
-      <ConnectN8nModal
+      <ConnectProviderModal
         open={showConnectModal}
+        provider="n8n"
         onClose={() => setShowConnectModal(false)}
         onSuccess={handleConnectSuccess}
       />

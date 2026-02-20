@@ -16,7 +16,8 @@ export async function GET(req: NextRequest) {
     const user = await getDemoUser();
 
     const params = req.nextUrl.searchParams;
-    const tool = params.get("tool"); // e.g. "N8N"
+    const tool = params.get("tool"); // e.g. "N8N" (legacy, filter by connection.tool)
+    const provider = params.get("provider"); // e.g. "n8n" (new, filter by provider field)
     const connectionId = params.get("connectionId");
 
     // Build where clause
@@ -24,12 +25,17 @@ export async function GET(req: NextRequest) {
     if (connectionId) {
       where.connectionId = connectionId;
     }
-    if (tool) {
+    if (provider) {
+      // Filter by provider field directly (preferred)
+      where.provider = provider;
+    } else if (tool) {
+      // Legacy: filter by connection.tool
       where.connection = { tool };
     }
 
     const dbWorkflows = await prisma.workflow.findMany({
       where,
+      include: { connection: true }, // Include connection for backward compatibility
       orderBy: { updatedAt: "desc" },
     });
 

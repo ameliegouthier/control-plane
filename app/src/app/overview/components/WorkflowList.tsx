@@ -1,8 +1,9 @@
 import Link from "next/link";
 import type { WorkflowWithEnrichment, DuplicateMap } from "@/lib/enrichment";
-import type { WorkflowTool } from "../../data/mockWorkflows";
+import type { AutomationProvider } from "@/app/workflow-helpers";
+import { N8nIcon, ZapierIcon, MakeIcon, AirtableIcon } from "./SidebarTools";
 
-type EnrichedWorkflow = WorkflowWithEnrichment & { tool: WorkflowTool };
+type EnrichedWorkflow = WorkflowWithEnrichment & { tool: AutomationProvider };
 
 interface WorkflowListProps {
   workflows: EnrichedWorkflow[];
@@ -11,13 +12,14 @@ interface WorkflowListProps {
 
 /**
  * Nouvelle grille :
+ * PROVIDER fixe (tool icon)
  * NAME large
  * STATUS fixe
  * HEALTH fixe
  * DOMAIN moyen
  * OUTPUT large (focus principal)
  */
-const GRID = "grid-cols-[2fr_110px_110px_180px_2.2fr]";
+const GRID = "grid-cols-[56px_2fr_110px_110px_180px_2.2fr]";
 
 // ─── Badge helpers ────────────────────────────────────────────────────────────
 
@@ -66,6 +68,50 @@ function smartTruncate(text: string, max = 50): string {
   return `${text.slice(0, keep)}...${text.slice(-keep)}`;
 }
 
+// ─── Provider Icon ─────────────────────────────────────────────────────────────
+
+function ProviderIcon({ tool }: { tool: AutomationProvider }) {
+  const iconProps = { className: "h-4 w-4" };
+  
+  const toolStyles: Record<AutomationProvider, string> = {
+    n8n: "bg-rose-100 text-rose-600 border-rose-200",
+    zapier: "bg-orange-100 text-orange-600 border-orange-200",
+    make: "bg-violet-100 text-violet-600 border-violet-200",
+    airtable: "bg-sky-100 text-sky-600 border-sky-200",
+  };
+  
+  const containerClass = `flex h-7 w-7 items-center justify-center rounded-lg border ${toolStyles[tool]}`;
+  
+  switch (tool) {
+    case "n8n":
+      return (
+        <div className={containerClass}>
+          <N8nIcon {...iconProps} />
+        </div>
+      );
+    case "zapier":
+      return (
+        <div className={containerClass}>
+          <ZapierIcon {...iconProps} />
+        </div>
+      );
+    case "make":
+      return (
+        <div className={containerClass}>
+          <MakeIcon {...iconProps} />
+        </div>
+      );
+    case "airtable":
+      return (
+        <div className={containerClass}>
+          <AirtableIcon {...iconProps} />
+        </div>
+      );
+    default:
+      return null;
+  }
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function WorkflowList({
@@ -90,6 +136,10 @@ export default function WorkflowList({
           <div
             className={`grid ${GRID} w-full items-center gap-4 border-b border-zinc-200/60 bg-zinc-50/30 px-6 py-3`}
           >
+            <div className="text-center text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+              {/* Provider column - no header text, just icon */}
+            </div>
+
             <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
               Name
             </div>
@@ -128,6 +178,11 @@ export default function WorkflowList({
                     idx % 2 === 0 ? "bg-white" : "bg-zinc-50/20"
                   }`}
                 >
+                  {/* PROVIDER */}
+                  <div className="flex items-center justify-center">
+                    <ProviderIcon tool={wf.tool} />
+                  </div>
+
                   {/* NAME */}
                   <div className="min-w-0 text-sm font-medium text-zinc-800">
                     <span className="block truncate">{truncatedName}</span>

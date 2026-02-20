@@ -1,16 +1,30 @@
 /**
  * Demo mode for MVP unblocker.
  *
- * Simulates the n8n REST API response: GET /rest/workflows
- * Rich demo dataset with realistic workflows, duplicates, and intentional errors.
+ * Provider-agnostic demo workflows for testing multi-provider architecture.
+ * Includes workflows from both n8n and Make providers.
  * Remove when real data flows.
  */
 
-import type { Workflow } from "@/app/workflow-helpers";
+import type { Workflow, WorkflowGraph, WorkflowGraphNode, WorkflowGraphEdge } from "@/app/workflow-helpers";
+import type { RawWorkflow } from "@/lib/enrichment";
 
-// ─── Raw n8n-like types ──────────────────────────────────────────────────────
+// Demo connection IDs (simulates real connections)
+const DEMO_CONNECTION_N8N = "demo-n8n-connection-001";
+const DEMO_CONNECTION_MAKE = "demo-make-connection-001";
 
-export type DemoN8NWorkflow = {
+// Extended Workflow type with enrichment fields
+export interface WorkflowWithEnrichmentFields extends Workflow {
+  triggerType?: string;
+  nodesCount?: number;
+  hasPublicWebhook?: boolean;
+  lastExecutionStatus?: "success" | "error" | null;
+  lastExecutionDate?: string | null;
+}
+
+// ─── Generic Demo Workflow Structure ────────────────────────────────────────
+
+interface DemoWorkflowRaw {
   id: string;
   name: string;
   active: boolean;
@@ -28,20 +42,22 @@ export type DemoN8NWorkflow = {
   connections: Record<string, unknown>;
   settings?: Record<string, unknown>;
   tags?: string[];
+  // Enrichment fields for Overview page
+  triggerType?: "webhook" | "cron" | "manual" | "none" | string;
+  hasPublicWebhook?: boolean;
+  lastExecutionStatus?: "success" | "error" | null;
+  lastExecutionDate?: string | null;
   __demo?: {
     expectedErrors?: string[];
     duplicateGroup?: string;
     duplicateHint?: string;
   };
-};
+}
 
-// ─── Raw demo response ───────────────────────────────────────────────────────
+// ─── Demo Workflows Data ────────────────────────────────────────────────────
 
-export const N8N_REST_WORKFLOWS_RESPONSE: {
-  data: DemoN8NWorkflow[];
-  nextCursor?: string;
-} = {
-  data: [
+// n8n workflows (first 2)
+const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
     // 1) MARKETING – Lead magnet -> nurture -> CRM
     {
       id: "101",
@@ -50,6 +66,10 @@ export const N8N_REST_WORKFLOWS_RESPONSE: {
       createdAt: "2026-02-01T10:00:00.000Z",
       updatedAt: "2026-02-10T09:00:00.000Z",
       tags: ["marketing", "crm"],
+      triggerType: "webhook",
+      hasPublicWebhook: true,
+      lastExecutionStatus: "success",
+      lastExecutionDate: "2026-02-16T10:30:00Z",
       nodes: [
         {
           id: "n1",
@@ -135,6 +155,10 @@ export const N8N_REST_WORKFLOWS_RESPONSE: {
       createdAt: "2026-01-15T08:30:00.000Z",
       updatedAt: "2026-02-05T11:12:00.000Z",
       tags: ["crm", "finance", "ops"],
+      triggerType: "webhook",
+      hasPublicWebhook: false,
+      lastExecutionStatus: "success",
+      lastExecutionDate: "2026-02-17T08:15:00Z",
       nodes: [
         {
           id: "n1",
@@ -562,30 +586,209 @@ export const N8N_REST_WORKFLOWS_RESPONSE: {
         },
       },
     },
-  ],
-  nextCursor: undefined,
-};
+  ];
 
-// ─── Mapper: DemoN8NWorkflow → Workflow (used by dashboard) ─────────────────
+// Make workflows (2 workflows with Make-specific node types)
+const MAKE_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
+  // 1) Make workflow - E-commerce order processing
+  {
+    id: "301",
+    name: "Shopify Order → Airtable → Email Confirmation",
+    active: true,
+    createdAt: "2026-02-05T11:00:00.000Z",
+    updatedAt: "2026-02-15T14:30:00.000Z",
+    tags: ["ecommerce", "crm"],
+    triggerType: "webhook",
+    hasPublicWebhook: true,
+    lastExecutionStatus: "success",
+    lastExecutionDate: "2026-02-15T22:00:00Z",
+    nodes: [
+      {
+        id: "m1",
+        name: "Shopify Webhook",
+        type: "make.webhook",
+        parameters: { path: "order-created", method: "POST" },
+      },
+      {
+        id: "m2",
+        name: "Create Record in Airtable",
+        type: "make.airtable",
+        parameters: {
+          base: "orders",
+          table: "Orders",
+          operation: "create",
+        },
+      },
+      {
+        id: "m3",
+        name: "Send Email via SendGrid",
+        type: "make.sendgrid",
+        parameters: {
+          operation: "send",
+          to: "={{$json.customer_email}}",
+          subject: "Order Confirmation",
+        },
+      },
+    ],
+    connections: {
+      "Shopify Webhook": {
+        main: [[{ node: "Create Record in Airtable", type: "main", index: 0 }]],
+      },
+      "Create Record in Airtable": {
+        main: [[{ node: "Send Email via SendGrid", type: "main", index: 0 }]],
+      },
+    },
+  },
 
-function toDashboardWorkflow(raw: DemoN8NWorkflow): Workflow {
+  // 2) Make workflow - Social media automation
+  {
+    id: "302",
+    name: "Twitter Mention → Slack Alert → Notion Log",
+    active: true,
+    createdAt: "2026-02-10T09:15:00.000Z",
+    updatedAt: "2026-02-18T16:20:00.000Z",
+    tags: ["social", "monitoring"],
+    triggerType: "webhook",
+    hasPublicWebhook: false,
+    lastExecutionStatus: "success",
+    lastExecutionDate: "2026-02-18T14:00:00Z",
+    nodes: [
+      {
+        id: "m1",
+        name: "Twitter Trigger",
+        type: "make.twitter",
+        parameters: { event: "mention", account: "main" },
+      },
+      {
+        id: "m2",
+        name: "Post to Slack Channel",
+        type: "make.slack",
+        parameters: {
+          channel: "#mentions",
+          text: "New mention: {{$json.text}}",
+        },
+      },
+      {
+        id: "m3",
+        name: "Add to Notion Database",
+        type: "make.notion",
+        parameters: {
+          database: "mentions_db",
+          operation: "create",
+        },
+      },
+    ],
+    connections: {
+      "Twitter Trigger": {
+        main: [[{ node: "Post to Slack Channel", type: "main", index: 0 }]],
+      },
+      "Post to Slack Channel": {
+        main: [[{ node: "Add to Notion Database", type: "main", index: 0 }]],
+      },
+    },
+  },
+];
+
+// ─── Mapper: DemoWorkflowRaw → Workflow ──────────────────────────────────────
+
+function toDashboardWorkflow(
+  raw: DemoWorkflowRaw,
+  provider: "n8n" | "make",
+  connectionId: string
+): WorkflowWithEnrichmentFields {
+  // Convert raw nodes to WorkflowGraph format
+  const graphNodes: WorkflowGraphNode[] = raw.nodes.map((n) => {
+    const typeLower = n.type.toLowerCase();
+    let kind: "trigger" | "action" | "router" | "other" = "other";
+    if (typeLower.includes("trigger") || typeLower.includes("webhook")) {
+      kind = "trigger";
+    } else if (typeLower.includes("if") || typeLower.includes("switch") || typeLower.includes("router")) {
+      kind = "router";
+    } else if (!typeLower.includes("trigger")) {
+      kind = "action";
+    }
+
+    return {
+      id: n.id,
+      label: n.name,
+      kind,
+      type: n.type,
+    };
+  });
+
+  // Convert raw connections to WorkflowGraph edges
+  // Create mapping from node name to node ID
+  const nameToId = new Map<string, string>();
+  for (const node of graphNodes) {
+    // Find the original node by matching label to name
+    const originalNode = raw.nodes.find((n) => (n.name ?? "") === node.label);
+    if (originalNode) {
+      const originalName = originalNode.name ?? "";
+      nameToId.set(originalName, node.id);
+    }
+  }
+
+  const graphEdges: WorkflowGraphEdge[] = [];
+  const connections = raw.connections as Record<string, {
+    main?: Array<Array<{ node: string; type: string; index: number }>>;
+  }> | undefined;
+
+  if (connections) {
+    for (const [sourceNodeName, conn] of Object.entries(connections)) {
+      const sourceId = nameToId.get(sourceNodeName);
+      if (!sourceId) continue;
+      
+      const mainConnections = conn.main ?? [];
+      for (const slot of mainConnections) {
+        for (const edge of slot) {
+          const targetId = nameToId.get(edge.node);
+          if (targetId) {
+            graphEdges.push({
+              from: sourceId,
+              to: targetId,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const graph: WorkflowGraph = {
+    nodes: graphNodes,
+    edges: graphEdges,
+  };
+
   return {
     id: raw.id,
     name: raw.name,
     active: raw.active,
+    provider,
+    connectionId,
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
-    nodes: raw.nodes.map((n, i) => ({
-      id: n.id,
-      name: n.name,
-      type: n.type,
-      position: [250 + i * 200, 300] as [number, number],
-      ...(n.parameters ? { parameters: n.parameters } : {}),
-    })),
-    connections: raw.connections as Workflow["connections"],
+    graph,
+    // Preserve enrichment fields from raw data
+    triggerType: raw.triggerType,
+    nodesCount: raw.nodes.length,
+    hasPublicWebhook: raw.hasPublicWebhook,
+    lastExecutionStatus: raw.lastExecutionStatus,
+    lastExecutionDate: raw.lastExecutionDate,
   };
 }
 
-/** Typed workflows ready for the dashboard UI */
-export const DEMO_WORKFLOWS: Workflow[] =
-  N8N_REST_WORKFLOWS_RESPONSE.data.map(toDashboardWorkflow);
+// ─── Combined Demo Workflows ───────────────────────────────────────────────────
+
+/** Typed workflows ready for the dashboard UI.
+ * Includes 2 n8n workflows and 2 Make workflows.
+ * These workflows include enrichment fields for the Overview page.
+ */
+export const DEMO_WORKFLOWS: WorkflowWithEnrichmentFields[] = [
+  // n8n workflows (first 2 from original list)
+  ...N8N_DEMO_WORKFLOWS.slice(0, 2).map((wf) =>
+    toDashboardWorkflow(wf, "n8n", DEMO_CONNECTION_N8N)
+  ),
+  // Make workflows
+  ...MAKE_DEMO_WORKFLOWS.map((wf) =>
+    toDashboardWorkflow(wf, "make", DEMO_CONNECTION_MAKE)
+  ),
+];

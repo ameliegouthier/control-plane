@@ -1,7 +1,7 @@
 import {
   type Workflow,
-  type WorkflowNode,
-  type Connections,
+  type WorkflowGraph,
+  type WorkflowGraphNode,
   getTriggerNode,
   getTriggerSummary,
   getSignals,
@@ -23,15 +23,12 @@ export interface WorkflowIntent {
 // ─── Main generator ─────────────────────────────────────────────────────────
 
 export function generateDraftIntent(workflow: Workflow): WorkflowIntent {
-  const trigger = getTriggerNode(workflow.nodes);
-  const triggerInfo = getTriggerSummary(workflow.nodes);
-  const signals = getSignals(workflow.nodes, workflow.connections);
-  const actionNodes = getOrderedActions(
-    workflow.nodes,
-    workflow.connections,
-    trigger
-  );
-  const leafNodes = getLeafNodes(workflow.nodes, workflow.connections);
+  const graph = workflow.graph;
+  const trigger = getTriggerNode(graph);
+  const triggerInfo = getTriggerSummary(graph);
+  const signals = getSignals(graph);
+  const actionNodes = getOrderedActions(graph, trigger);
+  const leafNodes = getLeafNodes(graph);
   const actionLabels = actionNodes.map((n) => formatNodeType(n.type));
 
   const input = deriveInput(triggerInfo.kind, trigger);
@@ -52,20 +49,17 @@ export function generateDraftIntent(workflow: Workflow): WorkflowIntent {
 
 function deriveInput(
   kind: string,
-  trigger: WorkflowNode | null
+  trigger: WorkflowGraphNode | null
 ): string {
-  const params = trigger?.parameters ?? {};
+  // Note: WorkflowGraphNode doesn't have parameters, so we derive from type
+  const triggerType = trigger?.type ?? "";
 
   if (kind === "webhook") {
-    const path = typeof params.path === "string" && params.path ? params.path : "";
-    const method = typeof params.httpMethod === "string" ? params.httpMethod : "";
-    const detail = path || method || "incoming request";
-    return `Webhook • ${detail}`;
+    return `Webhook • incoming request`;
   }
 
   if (kind === "schedule") {
-    const cadence = readScheduleCadence(params);
-    return `Schedule • ${cadence}`;
+    return `Schedule • recurring`;
   }
 
   if (kind === "manual") return "Manual trigger";
@@ -121,7 +115,7 @@ const NOTIFY_PATTERNS: [string, string][] = [
 ];
 
 /** Primary data/action outputs (checked on leaf nodes first, then all actions) */
-const PRIMARY_OUTPUT_RULES: [string, (node: WorkflowNode) => string][] = [
+const PRIMARY_OUTPUT_RULES: [string, (node: WorkflowGraphNode) => string][] = [
   ["respondtowebhook", () => "Returns an HTTP JSON response"],
   ["airtable", deriveAirtableOutput],
   ["hubspot", deriveGenericCrudOutput("HubSpot")],
@@ -139,8 +133,8 @@ const PRIMARY_OUTPUT_RULES: [string, (node: WorkflowNode) => string][] = [
 ];
 
 function deriveOutput(
-  leafNodes: WorkflowNode[],
-  allActions: WorkflowNode[]
+  leafNodes: WorkflowGraphNode[],
+  allActions: WorkflowGraphNode[]
 ): string {
   const parts: string[] = [];
 
@@ -166,7 +160,7 @@ function deriveOutput(
   return parts.length > 0 ? parts.join("; ") : "Runs automation steps";
 }
 
-function findPrimaryOutput(nodes: WorkflowNode[]): string | null {
+function findPrimaryOutput(nodes: WorkflowGraphNode[]): string | null {
   for (const node of nodes) {
     const t = node.type.toLowerCase();
     for (const [pattern, derive] of PRIMARY_OUTPUT_RULES) {
@@ -177,7 +171,7 @@ function findPrimaryOutput(nodes: WorkflowNode[]): string | null {
 }
 
 /** Airtable: prefer "Creates" vs "Updates" based on operation or node name */
-function deriveAirtableOutput(node: WorkflowNode): string {
+function deriveAirtableOutput(node: WorkflowGraphNode): string {
   const op = detectOperation(node);
   if (op === "create") return "Creates record in Airtable";
   if (op === "update") return "Updates record in Airtable";
@@ -191,8 +185,8 @@ function deriveAirtableOutput(node: WorkflowNode): string {
 /** Generic CRUD output for services like HubSpot, Notion, Salesforce */
 function deriveGenericCrudOutput(
   service: string
-): (node: WorkflowNode) => string {
-  return (node: WorkflowNode) => {
+): (node: WorkflowGraphNode) => string {
+  return (node: WorkflowGraphNode) => {
     const op = detectOperation(node);
     if (op === "create") return `Creates record in ${service}`;
     if (op === "update") return `Updates record in ${service}`;
@@ -205,28 +199,12 @@ function deriveGenericCrudOutput(
 }
 
 /**
- * Detect CRUD operation from node.parameters.operation or node.name.
+ * Detect CRUD operation from node type or label.
  * Returns a normalized verb or null.
  */
-function detectOperation(node: WorkflowNode): string | null {
-  // 1. Check explicit operation parameter
-  const op = node.parameters?.operation;
-  if (typeof op === "string") {
-    const lower = op.toLowerCase();
-    if (lower.includes("create") || lower === "append") return "create";
-    if (lower.includes("update")) return "update";
-    if (lower.includes("upsert")) return "upsert";
-    if (lower.includes("delete") || lower.includes("remove")) return "delete";
-    if (
-      lower.includes("get") ||
-      lower.includes("read") ||
-      lower.includes("search") ||
-      lower.includes("list")
-    )
-      return "read";
-  }
-  // 2. Heuristic from node.name
-  const name = node.name.toLowerCase();
+function detectOperation(node: WorkflowGraphNode): string | null {
+  // Heuristic from node label (name)
+  const name = node.label.toLowerCase();
   if (name.includes("create") || name.includes("add") || name.includes("new"))
     return "create";
   if (name.includes("update") || name.includes("edit") || name.includes("patch"))
@@ -266,7 +244,7 @@ const APP_CATEGORIES: [string, string][] = [
   ["mongodb", "Data pipeline"],
 ];
 
-function deriveCategory(kind: string, actions: WorkflowNode[]): string {
+function deriveCategory(kind: string, actions: WorkflowGraphNode[]): string {
   // Webhook + respond → API endpoint
   if (
     kind === "webhook" &&
@@ -370,7 +348,7 @@ const KNOWN_APPS = [
   "apollo",
 ];
 
-function deriveTags(kind: string, actions: WorkflowNode[]): string[] {
+function deriveTags(kind: string, actions: WorkflowGraphNode[]): string[] {
   const tags = new Set<string>();
   tags.add(kind);
 
@@ -403,38 +381,55 @@ function deriveTags(kind: string, actions: WorkflowNode[]): string[] {
 // ─── Internal helpers ───────────────────────────────────────────────────────
 
 function getOrderedActions(
-  nodes: WorkflowNode[],
-  connections: Connections,
-  trigger: WorkflowNode | null
-): WorkflowNode[] {
-  const byName = new Map(nodes.map((n) => [n.name, n]));
-  const triggerName = trigger?.name;
-  const visited = new Set<string>();
-  const result: WorkflowNode[] = [];
+  graph: WorkflowGraph | undefined,
+  trigger: WorkflowGraphNode | null
+): WorkflowGraphNode[] {
+  if (!graph) return [];
+  
+  const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const nodeByLabel = new Map(graph.nodes.map((n) => [n.label, n]));
+  const edgesByFrom = new Map<string, WorkflowGraphEdge[]>();
+  
+  // Build edge index
+  for (const edge of graph.edges) {
+    if (!edgesByFrom.has(edge.from)) {
+      edgesByFrom.set(edge.from, []);
+    }
+    edgesByFrom.get(edge.from)!.push(edge);
+  }
 
-  function walk(name: string) {
-    if (visited.has(name)) return;
-    visited.add(name);
-    const node = byName.get(name);
-    if (node && node.name !== triggerName) result.push(node);
-    const outs = connections[name]?.main;
-    if (!outs) return;
-    for (const slot of outs) {
-      for (const edge of slot) walk(edge.node);
+  const triggerId = trigger?.id;
+  const visited = new Set<string>();
+  const result: WorkflowGraphNode[] = [];
+
+  function walk(nodeId: string) {
+    if (visited.has(nodeId)) return;
+    visited.add(nodeId);
+    const node = nodeById.get(nodeId);
+    if (node && node.id !== triggerId && node.kind !== "trigger") {
+      result.push(node);
+    }
+    const edges = edgesByFrom.get(nodeId) ?? [];
+    for (const edge of edges) {
+      walk(edge.to);
     }
   }
 
-  if (trigger) walk(trigger.name);
-  for (const n of nodes) {
-    if (!visited.has(n.name) && n.name !== triggerName) result.push(n);
+  if (trigger) walk(trigger.id);
+  
+  // Append any nodes not reachable from trigger (disconnected)
+  for (const n of graph.nodes) {
+    if (!visited.has(n.id) && n.id !== triggerId && n.kind !== "trigger") {
+      result.push(n);
+    }
   }
   return result;
 }
 
-function getLeafNodes(
-  nodes: WorkflowNode[],
-  connections: Connections
-): WorkflowNode[] {
-  const hasOutgoing = new Set(Object.keys(connections));
-  return nodes.filter((n) => !hasOutgoing.has(n.name));
+function getLeafNodes(graph: WorkflowGraph | undefined): WorkflowGraphNode[] {
+  if (!graph) return [];
+  
+  // Nodes that have no outgoing edges
+  const hasOutgoing = new Set(graph.edges.map((e) => e.from));
+  return graph.nodes.filter((n) => !hasOutgoing.has(n.id));
 }

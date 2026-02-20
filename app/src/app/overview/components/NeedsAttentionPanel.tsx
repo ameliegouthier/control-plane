@@ -28,6 +28,9 @@ export default function NeedsAttentionPanel({
     );
   }
 
+  // If no broken and no duplicates, show warnings under "Warning" title
+  const showWarningsAsBroken = broken.length === 0 && duplicates.length === 0;
+
   return (
     <section>
       <h2 className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
@@ -37,6 +40,7 @@ export default function NeedsAttentionPanel({
       <div className="mt-4 grid gap-10 lg:grid-cols-2">
         {/* Left column: Broken + Duplicates */}
         <div className="space-y-8">
+          {/* Broken section */}
           {broken.length > 0 && (
             <div>
               <div className="mb-3 flex items-center gap-2">
@@ -60,6 +64,31 @@ export default function NeedsAttentionPanel({
             </div>
           )}
 
+          {/* Warnings shown in left column when no broken/duplicates */}
+          {showWarningsAsBroken && (
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
+                <h3 className="text-xs font-semibold text-zinc-600">
+                  Warnings — Monitor These
+                </h3>
+              </div>
+              <div className="space-y-3">
+                {warnings.map((wf) => (
+                  <WorkflowAlertItem
+                    key={wf.id}
+                    variant="warning"
+                    title={wf.name}
+                    subtitle={wf.enrichment.reason}
+                    actionLabel="View →"
+                    href={`/workflows/${wf.id}`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Duplicates section */}
           {duplicates.length > 0 && (
             <div>
               <div className="mb-3 flex items-center gap-2">
@@ -88,8 +117,8 @@ export default function NeedsAttentionPanel({
           )}
         </div>
 
-        {/* Right column: Warnings */}
-        {warnings.length > 0 && (
+        {/* Right column: Warnings (only show if there are broken or duplicates) */}
+        {warnings.length > 0 && !showWarningsAsBroken && (
           <div>
             <div className="mb-3 flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />

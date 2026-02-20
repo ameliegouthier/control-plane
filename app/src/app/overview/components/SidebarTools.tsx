@@ -3,7 +3,7 @@
 import React from "react";
 
 // Icon components
-const N8nIcon = ({ className }: { className?: string }) => (
+export const N8nIcon = ({ className }: { className?: string }) => (
   <svg
     className={className}
     width="21"
@@ -21,7 +21,7 @@ const N8nIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-const ZapierIcon = ({ className }: { className?: string }) => (
+export const ZapierIcon = ({ className }: { className?: string }) => (
   <svg
     className={className}
     width="23"
@@ -72,7 +72,7 @@ const ZapierIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-const MakeIcon = ({ className }: { className?: string }) => (
+export const MakeIcon = ({ className }: { className?: string }) => (
   <svg
     className={className}
     width="17"
@@ -144,7 +144,7 @@ const MakeIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-const AirtableIcon = ({ className }: { className?: string }) => (
+export const AirtableIcon = ({ className }: { className?: string }) => (
   <svg
     className={className}
     width="17"

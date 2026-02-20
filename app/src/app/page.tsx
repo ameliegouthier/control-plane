@@ -1,11 +1,11 @@
 import React from "react";
 import Dashboard from "./dashboard";
 import { type Workflow, toWorkflow } from "./workflow-helpers";
-import { getN8nConnection } from "@/lib/n8n-connection";
+import { getProviderConnection } from "@/lib/provider-connection";
 import { getDemoUser } from "@/lib/demo-user";
 import { prisma } from "@/lib/prisma";
 import { syncN8nWorkflows } from "@/lib/n8n-sync";
-import { DEMO_WORKFLOWS } from "@/lib/demo/demoWorkflows";
+import { getAllWorkflows } from "@/lib/repositories/workflowsRepository";
 
 // Force Next.js to treat this page as fully dynamic (no SSG/cache)
 export const dynamic = "force-dynamic";
@@ -15,9 +15,11 @@ const isServerDemoMode = process.env.DEMO_MODE === "true";
 export default async function Home() {
   // ─── Server-side demo mode: skip DB/n8n entirely ─────────────
   if (isServerDemoMode) {
+    const demoWorkflows = getAllWorkflows();
+    console.log("WORKFLOWS (DEMO MODE):", demoWorkflows);
     return (
       <Dashboard
-        workflows={DEMO_WORKFLOWS}
+        workflows={demoWorkflows}
         error={null}
         initialN8nConnected={false}
         initialDemoMode
@@ -31,7 +33,7 @@ export default async function Home() {
 
   // 1. Check if n8n connection exists in DB (direct DB call — no HTTP self-fetch)
   try {
-    const conn = await getN8nConnection();
+    const conn = await getProviderConnection("n8n");
     n8nConnected = !!conn;
   } catch (err) {
     console.error("[page] connection check failed:", err);
@@ -55,6 +57,7 @@ export default async function Home() {
 
       const dbWorkflows = await prisma.workflow.findMany({
         where: { userId: user.id },
+        include: { connection: true }, // Include connection to get provider info
         orderBy: { updatedAt: "desc" },
       });
 
@@ -64,6 +67,8 @@ export default async function Home() {
       error = e instanceof Error ? e.message : "Could not load workflows";
     }
   }
+
+  console.log("WORKFLOWS:", workflows);
 
   return (
     <Dashboard

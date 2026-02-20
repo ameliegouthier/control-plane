@@ -15,8 +15,8 @@ import {
   type WorkflowIntent,
   generateDraftIntent,
 } from "../lib/intent";
-import ConnectN8nModal from "./connect-n8n-modal";
-import { DEMO_WORKFLOWS } from "../lib/demo/demoWorkflows";
+import ConnectProviderModal from "./connect-provider-modal";
+import { getAllWorkflows } from "@/lib/repositories/workflowsRepository";
 import {
   isDemoMode,
   enableDemoMode,
@@ -212,9 +212,9 @@ function WorkflowListPanel({
         <div className="flex flex-col gap-1.5">
           {workflows.map((wf) => {
             const isSelected = wf.id === selectedId;
-            const trigger = getTriggerSummary(wf.nodes);
-            const actions = getActionPills(wf.nodes, wf.connections);
-            const signals = getSignals(wf.nodes, wf.connections);
+            const trigger = getTriggerSummary(wf.graph);
+            const actions = getActionPills(wf.graph);
+            const signals = getSignals(wf.graph);
             const intent = intents[wf.id];
 
             return (
@@ -261,7 +261,7 @@ function WorkflowListPanel({
                     {trigger.label}
                   </span>
                   <span>·</span>
-                  <span className="shrink-0">{wf.nodes.length} nodes</span>
+                  <span className="shrink-0">{wf.graph?.nodes.length ?? 0} nodes</span>
                   <span>·</span>
                   <span className="shrink-0">
                     {new Date(wf.updatedAt).toLocaleDateString("en-US", {
@@ -519,10 +519,7 @@ function Arrow() {
 }
 
 function MiniWorkflowMap({ workflow }: { workflow: Workflow }) {
-  const { mainPath, branches } = buildMiniMap(
-    workflow.nodes,
-    workflow.connections
-  );
+  const { mainPath, branches } = buildMiniMap(workflow.graph);
 
   if (mainPath.length === 0) {
     return (
@@ -580,8 +577,8 @@ function DetailPanel({
     );
   }
 
-  const trigger = getTriggerSummary(workflow.nodes);
-  const signals = getSignals(workflow.nodes, workflow.connections);
+  const trigger = getTriggerSummary(workflow.graph);
+  const signals = getSignals(workflow.graph);
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto bg-white">
@@ -663,7 +660,7 @@ function DetailPanel({
         {/* Node list */}
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-            Nodes ({workflow.nodes.length})
+            Nodes ({workflow.graph?.nodes.length ?? 0})
           </h3>
           <div className="rounded-lg border border-zinc-200">
             <table className="w-full text-sm">
@@ -674,13 +671,13 @@ function DetailPanel({
                 </tr>
               </thead>
               <tbody>
-                {workflow.nodes.map((node, i) => (
+                {workflow.graph?.nodes.map((node, i) => (
                   <tr
                     key={node.id ?? i}
                     className="border-b border-zinc-50 last:border-0"
                   >
                     <td className="px-4 py-2 font-medium text-zinc-800">
-                      {node.name}
+                      {node.label}
                     </td>
                     <td className="px-4 py-2 text-zinc-500">
                       <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">
@@ -688,7 +685,7 @@ function DetailPanel({
                       </span>
                     </td>
                   </tr>
-                ))}
+                )) ?? []}
               </tbody>
             </table>
           </div>
@@ -780,7 +777,9 @@ export default function Dashboard({
   }, [router]);
 
   // Resolve active workflows: demo data takes priority when demo mode is on
-  const activeWorkflows = demoActive ? DEMO_WORKFLOWS : workflows;
+  const activeWorkflows = demoActive ? getAllWorkflows() : workflows;
+  console.log("WORKFLOWS:", workflows);
+  console.log("ACTIVE_WORKFLOWS:", activeWorkflows);
   const isConnectedOrDemo = n8nConnected || demoActive;
 
   // ─── Intent state ───────────────────────────────────────────
@@ -835,8 +834,9 @@ export default function Dashboard({
         isDemo={demoActive}
         onDisableDemo={handleDisableDemo}
       />
-      <ConnectN8nModal
+      <ConnectProviderModal
         open={connectModalOpen}
+        provider="n8n"
         onClose={() => setConnectModalOpen(false)}
         onSuccess={handleConnectSuccess}
       />

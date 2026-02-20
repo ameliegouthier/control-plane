@@ -1,24 +1,7 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
-import { getN8nConnection } from "./n8n-connection";
-import { fetchN8nApi } from "./n8n-client";
-
-// Minimal types for the n8n API response
-interface N8nNode {
-  type: string;
-  name?: string;
-  parameters?: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-interface N8nWorkflow {
-  id: string | number;
-  name: string;
-  active: boolean;
-  nodes: N8nNode[];
-  connections: Record<string, unknown>;
-  [key: string]: unknown;
-}
+import { getProviderConnection } from "./provider-connection";
+import { getProviderAdapter } from "./providers";
+import type { ProviderConnection } from "./providers/types";
 
 export interface SyncResult {
   success: boolean;
@@ -32,109 +15,40 @@ export interface SyncResult {
  * Fetch workflows from the connected n8n instance and sync them into the DB.
  * Returns a SyncResult indicating success/failure and count.
  *
- * Uses fetchN8nApi which handles:
- *   - API key auth (X-N8N-API-KEY on /api/v1/*)
- *   - Login-based auth (POST /rest/login → session cookie on /rest/*)
- *   - ngrok header bypass
+ * This function now uses the N8NAdapter through the provider abstraction layer.
+ * The adapter handles:
+ *   - Fetching workflows from n8n API
+ *   - Normalizing them into the generic Workflow model
+ *   - Syncing them to the database
  *
  * Can be called from:
  *   - Server component (page.tsx) during render
  *   - API route (GET /api/n8n/workflows) for explicit sync
  */
 export async function syncN8nWorkflows(): Promise<SyncResult> {
-  const conn = await getN8nConnection();
+  const conn = await getProviderConnection("n8n");
 
   if (!conn) {
     return { success: false, synced: 0, error: "n8n is not connected" };
   }
 
-  const { connectionId, userId, credentials } = conn;
+  // Convert to ProviderConnection format
+  const connection: ProviderConnection = {
+    id: conn.connectionId,
+    provider: "n8n",
+    userId: conn.userId,
+    status: "ACTIVE",
+    config: conn.config,
+  };
 
-  try {
-    const res = await fetchN8nApi(credentials, "/workflows");
+  // Get the n8n adapter and sync workflows
+  const adapter = getProviderAdapter("n8n");
+  const result = await adapter.syncWorkflows(connection) as SyncResult & { rawPayload?: unknown };
 
-    if (!res.ok) {
-      const msg = `n8n responded with status ${res.status}`;
-      await logSync(connectionId, userId, "ERROR", 0, msg);
-      return { success: false, synced: 0, error: msg };
-    }
-
-    const payload = await res.json();
-    const n8nWorkflows: N8nWorkflow[] = payload.data ?? [];
-
-    // ─── Sync workflows to DB ──────────────────────────────────────
-    let synced = 0;
-    for (const wf of n8nWorkflows) {
-      const triggerNode = wf.nodes?.find((n: N8nNode) => {
-        const t = n.type?.toLowerCase() ?? "";
-        return t.includes("trigger") || t.includes("webhook");
-      });
-
-      const triggerConfig = triggerNode?.parameters
-        ? (triggerNode.parameters as Prisma.InputJsonValue)
-        : Prisma.JsonNull;
-      const actions = {
-        nodes: wf.nodes,
-        connections: wf.connections,
-      } as Prisma.InputJsonValue;
-
-      await prisma.workflow.upsert({
-        where: {
-          connectionId_toolWorkflowId: {
-            connectionId,
-            toolWorkflowId: String(wf.id),
-          },
-        },
-        update: {
-          name: wf.name,
-          status: wf.active ? "active" : "inactive",
-          triggerType: triggerNode?.type ?? undefined,
-          triggerConfig,
-          actions,
-          lastSyncedAt: new Date(),
-        },
-        create: {
-          userId,
-          connectionId,
-          toolWorkflowId: String(wf.id),
-          name: wf.name,
-          status: wf.active ? "active" : "inactive",
-          triggerType: triggerNode?.type ?? undefined,
-          triggerConfig,
-          actions,
-          lastSyncedAt: new Date(),
-        },
-      });
-      synced++;
-    }
-
-    // Update connection lastSyncedAt
-    await prisma.connection.update({
-      where: { id: connectionId },
-      data: { lastSyncedAt: new Date() },
-    });
-
-    await logSync(connectionId, userId, "SUCCESS", synced, null);
-
-    return { success: true, synced, rawPayload: payload };
-  } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : "Unknown error calling n8n API";
-    await logSync(connectionId, userId, "ERROR", 0, message).catch(() => {});
-    return { success: false, synced: 0, error: message };
-  }
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-async function logSync(
-  connectionId: string,
-  userId: string,
-  status: "SUCCESS" | "PARTIAL" | "ERROR",
-  workflowsCount: number,
-  errorMessage: string | null,
-) {
-  await prisma.syncLog.create({
-    data: { connectionId, userId, status, workflowsCount, errorMessage },
-  });
+  return {
+    success: result.success,
+    synced: result.synced,
+    error: result.error,
+    rawPayload: result.rawPayload,
+  };
 }

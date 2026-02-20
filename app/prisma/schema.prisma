@@ -78,8 +78,13 @@ model Workflow {
   connectionId  String
   connection    Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
-  // Identifiant du workflow côté outil externe
-  toolWorkflowId String
+  // Provider-agnostic fields
+  provider      String   // Provider type: "n8n", "make", "zapier", etc.
+  externalId    String   // Workflow ID from the external provider
+  
+  // Legacy field (kept for backward compatibility during migration)
+  toolWorkflowId String?
+  
   name          String
   status        String
   triggerType   String?
@@ -90,9 +95,11 @@ model Workflow {
   updatedAt     DateTime @updatedAt
   lastSyncedAt  DateTime?
 
+  @@unique([provider, externalId])
   @@unique([connectionId, toolWorkflowId])
   @@index([userId])
   @@index([connectionId])
+  @@index([provider])
 }
 
 model SyncLog {
