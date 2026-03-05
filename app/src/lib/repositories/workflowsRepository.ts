@@ -33,6 +33,8 @@ function workflowToRawWorkflow(wf: WorkflowWithEnrichmentFields): RawWorkflow {
     lastExecutionStatus: wf.lastExecutionStatus,
     lastExecutionDate: wf.lastExecutionDate,
     nodes,
+    destination: wf.outputDestination,
+    healthOverride: wf.healthOverride,
   };
 }
 

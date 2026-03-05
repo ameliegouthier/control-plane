@@ -9,7 +9,7 @@ import type {
 
 // ─── Re-export provider-agnostic types ────────────────────────────────────────
 
-export type { Workflow, AutomationProvider };
+export type { Workflow, WorkflowGraph, WorkflowGraphNode, WorkflowGraphEdge, AutomationProvider };
 
 // ─── Provider Mapping ──────────────────────────────────────────────────────────
 
@@ -45,31 +45,33 @@ export function toWorkflow(db: DbWorkflow): Workflow {
       ? (db.actions as Record<string, unknown>)
       : {};
 
-  // Use provider field directly if available, otherwise derive from connection (backward compatibility)
-  const provider: AutomationProvider = 
-    (db as { provider?: string }).provider && 
-    ["n8n", "make", "zapier", "airtable"].includes((db as { provider?: string }).provider!)
+  // Use provider field from Workflow; Prisma Workflow has provider and connectionId (connection relation may be unloaded)
+  const rawProvider = (db as { provider?: string }).provider;
+  const provider: AutomationProvider =
+    rawProvider && ["n8n", "make", "zapier", "airtable"].includes(rawProvider)
       ? (db as { provider: AutomationProvider }).provider
-      : mapToolTypeToProvider(db.connection?.tool);
+      : "n8n";
 
-  // Try to use graph if available (new format), otherwise convert from legacy format
+  // Build graph only when we have new-format graph or legacy nodes/connections
+  const hasNewGraph = actions.graph != null && typeof actions.graph === "object";
+  const hasLegacyGraph =
+    actions.nodes !== undefined || actions.connections !== undefined;
+
   let graph: WorkflowGraph | undefined;
-  
-  if (actions.graph && typeof actions.graph === "object") {
-    // New format: graph already exists
+
+  if (hasNewGraph) {
     const g = actions.graph as { nodes?: unknown[]; edges?: unknown[] };
-    const nodes = Array.isArray(g.nodes) 
-      ? g.nodes.map(parseGraphNode).filter(Boolean) as WorkflowGraphNode[]
+    const nodes = Array.isArray(g.nodes)
+      ? (g.nodes.map(parseGraphNode).filter(Boolean) as WorkflowGraphNode[])
       : [];
     const edges = Array.isArray(g.edges)
-      ? g.edges.map(parseGraphEdge).filter(Boolean) as WorkflowGraphEdge[]
+      ? (g.edges.map(parseGraphEdge).filter(Boolean) as WorkflowGraphEdge[])
       : [];
     graph = { nodes, edges };
-  } else {
-    // Legacy format: convert from nodes/connections
+  } else if (hasLegacyGraph) {
     const rawNodes = actions.nodes;
-    const legacyNodes = Array.isArray(rawNodes)
-      ? rawNodes.map(parseLegacyNode).filter(Boolean)
+    const legacyNodes: { id: string; name: string; type: string }[] = Array.isArray(rawNodes)
+      ? rawNodes.map(parseLegacyNode).filter((n): n is { id: string; name: string; type: string } => n != null)
       : [];
 
     const rawConns = actions.connections;
@@ -82,7 +84,6 @@ export function toWorkflow(db: DbWorkflow): Workflow {
           }>)
         : {};
 
-    // Convert legacy format to WorkflowGraph
     const graphNodes: WorkflowGraphNode[] = legacyNodes.map((n) => {
       const typeLower = n.type.toLowerCase();
       let kind: "trigger" | "action" | "router" | "other" = "other";
@@ -93,7 +94,6 @@ export function toWorkflow(db: DbWorkflow): Workflow {
       } else if (!typeLower.includes("trigger")) {
         kind = "action";
       }
-
       return {
         id: n.id,
         label: n.name,
@@ -114,12 +114,13 @@ export function toWorkflow(db: DbWorkflow): Workflow {
         }
       }
     }
-
     graph = { nodes: graphNodes, edges: graphEdges };
   }
+  // else: no graph and no legacy → graph stays undefined
 
-  // Use externalId if available, otherwise fall back to toolWorkflowId (backward compatibility)
-  const workflowId = (db as { externalId?: string }).externalId ?? db.toolWorkflowId;
+  // Use externalId if available, otherwise toolWorkflowId, else Prisma id
+  const workflowId =
+    (db as { externalId?: string }).externalId ?? db.toolWorkflowId ?? db.id;
 
   return {
     id: workflowId,
@@ -304,6 +305,61 @@ export function getActionPills(
   const pills = labels.slice(0, max);
   const remaining = Math.max(0, labels.length - max);
   return { pills, remaining };
+}
+
+/**
+ * Return a human-readable route string: "Trigger → Node1 → Node2 → …"
+ * Uses node labels for display (e.g. "Webhook → Validate Email → HubSpot → Gmail").
+ */
+export function getWorkflowRoute(graph: WorkflowGraph | undefined): string {
+  if (!graph) return "—";
+  const trigger = getTriggerNode(graph);
+  const triggerLabel = trigger ? trigger.label : "Trigger";
+  const ordered = getOrderedNonTriggerNodes(graph, trigger);
+  const labels = ordered.map((n) => n.label);
+  return [triggerLabel, ...labels].join(" → ");
+}
+
+/** Category for pipeline node styling on destination detail page */
+export type PipelineNodeCategory = "trigger" | "condition" | "destination" | "action";
+
+export interface PipelineNode {
+  id: string;
+  label: string;
+  category: PipelineNodeCategory;
+}
+
+/**
+ * Return ordered pipeline nodes for destination detail view.
+ * destinationName (e.g. "HubSpot") is used to mark the output node as "destination".
+ */
+export function getWorkflowPipeline(
+  graph: WorkflowGraph | undefined,
+  destinationName?: string
+): PipelineNode[] {
+  if (!graph) return [];
+  const trigger = getTriggerNode(graph);
+  const ordered = getOrderedNonTriggerNodes(graph, trigger);
+  const destLower = (destinationName ?? "").toLowerCase();
+  const result: PipelineNode[] = [];
+
+  if (trigger) {
+    result.push({ id: trigger.id, label: trigger.label, category: "trigger" });
+  }
+  for (const n of ordered) {
+    const typeLower = n.type.toLowerCase();
+    const labelLower = n.label.toLowerCase();
+    const isDestination =
+      destLower && (labelLower.includes(destLower) || typeLower.includes(destLower.replace(/\s+/g, "")));
+    let category: PipelineNodeCategory = "action";
+    if (n.kind === "router" || typeLower.includes("if") || typeLower.includes("switch")) {
+      category = "condition";
+    } else if (isDestination) {
+      category = "destination";
+    }
+    result.push({ id: n.id, label: n.label, category });
+  }
+  return result;
 }
 
 /** Map a node type to a short pill label */

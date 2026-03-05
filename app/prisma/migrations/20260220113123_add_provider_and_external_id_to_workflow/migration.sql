@@ -7,6 +7,7 @@ ALTER TABLE "Workflow" ALTER COLUMN "toolWorkflowId" DROP NOT NULL;
 
 -- Populate provider and externalId from existing data
 -- Derive provider from Connection.tool and use toolWorkflowId as externalId
+-- Safe for empty tables: only updates rows that exist and have a connection
 UPDATE "Workflow" w
 SET 
   "provider" = CASE 
@@ -15,10 +16,17 @@ SET
     WHEN c."tool" = 'ZAPIER' THEN 'zapier'
     ELSE 'n8n' -- Default fallback
   END,
-  "externalId" = w."toolWorkflowId"
+  "externalId" = COALESCE(w."toolWorkflowId", w."id")
 FROM "Connection" c
 WHERE w."connectionId" = c."id"
   AND (w."provider" IS NULL OR w."externalId" IS NULL);
+
+-- Handle workflows without connections (shouldn't happen, but safe fallback)
+UPDATE "Workflow"
+SET 
+  "provider" = 'n8n',
+  "externalId" = COALESCE("toolWorkflowId", "id")
+WHERE "provider" IS NULL OR "externalId" IS NULL;
 
 -- Make provider and externalId non-nullable
 ALTER TABLE "Workflow" ALTER COLUMN "provider" SET NOT NULL;

@@ -2,6 +2,7 @@ import {
   type Workflow,
   type WorkflowGraph,
   type WorkflowGraphNode,
+  type WorkflowGraphEdge,
   getTriggerNode,
   getTriggerSummary,
   getSignals,

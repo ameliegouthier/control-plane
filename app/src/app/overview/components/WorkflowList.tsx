@@ -1,225 +1,177 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { WorkflowWithEnrichment, DuplicateMap } from "@/lib/enrichment";
 import type { AutomationProvider } from "@/app/workflow-helpers";
-import { N8nIcon, ZapierIcon, MakeIcon, AirtableIcon } from "./SidebarTools";
+import { getWorkflowRoute } from "@/app/workflow-helpers";
+import type { Workflow } from "@/app/workflow-helpers";
 
 type EnrichedWorkflow = WorkflowWithEnrichment & { tool: AutomationProvider };
 
 interface WorkflowListProps {
   workflows: EnrichedWorkflow[];
+  fullWorkflows: Workflow[];
   duplicateMap: DuplicateMap;
 }
 
-/**
- * Nouvelle grille :
- * PROVIDER fixe (tool icon)
- * NAME large
- * STATUS fixe
- * HEALTH fixe
- * DOMAIN moyen
- * OUTPUT large (focus principal)
- */
-const GRID = "grid-cols-[56px_2fr_110px_110px_180px_2.2fr]";
-
-// ─── Badge helpers ────────────────────────────────────────────────────────────
-
-function StatusBadge({ active }: { active: boolean }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-        active
-          ? "bg-emerald-100 text-emerald-700"
-          : "bg-zinc-100 text-zinc-400"
-      }`}
-    >
-      {active ? "Active" : "Inactive"}
-    </span>
-  );
+function formatRelativeTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  const now = Date.now();
+  const diffMs = now - d.getTime();
+  const diffM = Math.floor(diffMs / 60_000);
+  const diffH = Math.floor(diffMs / 3_600_000);
+  const diffD = Math.floor(diffMs / 86_400_000);
+  if (diffM < 60) return `${diffM}m ago`;
+  if (diffH < 24) return `${diffH}h ago`;
+  if (diffD < 7) return `${diffD}d ago`;
+  return d.toLocaleDateString();
 }
 
-function HealthBadge({ status }: { status: "ok" | "warning" | "broken" }) {
-  const styles: Record<"ok" | "warning" | "broken", string> = {
-    ok: "bg-emerald-100 text-emerald-700",
-    warning: "bg-amber-100 text-amber-700",
-    broken: "bg-red-200 text-red-900",
-  };
-
-  const labels: Record<"ok" | "warning" | "broken", string> = {
-    ok: "OK",
-    warning: "Warning",
-    broken: "Broken",
-  };
-
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${styles[status]}`}
-    >
-      {labels[status]}
-    </span>
-  );
+function mockRuns(id: string): string {
+  const n = id.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  return ((n % 9000) + 100).toLocaleString();
 }
 
-// ─── Smart truncate ───────────────────────────────────────────────────────────
-
-function smartTruncate(text: string, max = 50): string {
-  if (text.length <= max) return text;
-
-  const keep = Math.floor((max - 3) / 2);
-  return `${text.slice(0, keep)}...${text.slice(-keep)}`;
+function mockOwner(id: string): string {
+  const names = ["Sarah M.", "Mike R.", "Alex K.", "Jordan L.", "Sam P."];
+  const i = id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % names.length;
+  return names[i];
 }
 
-// ─── Provider Icon ─────────────────────────────────────────────────────────────
-
-function ProviderIcon({ tool }: { tool: AutomationProvider }) {
-  const iconProps = { className: "h-4 w-4" };
-  
-  const toolStyles: Record<AutomationProvider, string> = {
-    n8n: "bg-rose-100 text-rose-600 border-rose-200",
-    zapier: "bg-orange-100 text-orange-600 border-orange-200",
-    make: "bg-violet-100 text-violet-600 border-violet-200",
-    airtable: "bg-sky-100 text-sky-600 border-sky-200",
-  };
-  
-  const containerClass = `flex h-7 w-7 items-center justify-center rounded-lg border ${toolStyles[tool]}`;
-  
-  switch (tool) {
-    case "n8n":
-      return (
-        <div className={containerClass}>
-          <N8nIcon {...iconProps} />
-        </div>
-      );
-    case "zapier":
-      return (
-        <div className={containerClass}>
-          <ZapierIcon {...iconProps} />
-        </div>
-      );
-    case "make":
-      return (
-        <div className={containerClass}>
-          <MakeIcon {...iconProps} />
-        </div>
-      );
-    case "airtable":
-      return (
-        <div className={containerClass}>
-          <AirtableIcon {...iconProps} />
-        </div>
-      );
-    default:
-      return null;
+function StatusCell({ active, health }: { active: boolean; health: string }) {
+  if (!active) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm text-neutral-600">
+        <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" />
+        Inactive
+      </span>
+    );
   }
+  if (health === "broken") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm text-red-600">
+        <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+        Broken
+      </span>
+    );
+  }
+  if (health === "warning" || health === "optimizable") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm text-amber-600">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        Warning
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600">
+      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      OK
+    </span>
+  );
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+function ToolBadge({ tool }: { tool: AutomationProvider }) {
+  const styles: Record<AutomationProvider, string> = {
+    n8n: "bg-orange-100 text-orange-700 border-orange-200",
+    zapier: "bg-amber-100 text-amber-700 border-amber-200",
+    make: "bg-violet-100 text-violet-700 border-violet-200",
+    airtable: "bg-sky-100 text-sky-700 border-sky-200",
+  };
+  return (
+    <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium ${styles[tool] ?? "bg-neutral-100 text-neutral-600"}`}>
+      {tool}
+    </span>
+  );
+}
+
+const GRID = "grid-cols-[minmax(0,2fr)_minmax(0,2fr)_80px_100px_80px_90px_80px]";
 
 export default function WorkflowList({
   workflows,
+  fullWorkflows,
 }: WorkflowListProps) {
+  const [search, setSearch] = useState("");
+
+  const workflowById = useMemo(() => {
+    const map = new Map<string, Workflow>();
+    fullWorkflows.forEach((w) => map.set(w.id, w));
+    return map;
+  }, [fullWorkflows]);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return workflows;
+    const q = search.trim().toLowerCase();
+    return workflows.filter((w) => w.name.toLowerCase().includes(q));
+  }, [workflows, search]);
+
   if (workflows.length === 0) {
     return (
-      <div className="rounded-2xl border border-zinc-200 bg-white px-6 py-12 text-center">
-        <p className="text-sm text-zinc-400">
-          No workflows match the filters.
-        </p>
+      <div className="rounded-lg border border-neutral-200 bg-white px-6 py-12 text-center">
+        <p className="text-sm text-neutral-500">No workflows match the filters.</p>
       </div>
     );
   }
 
   return (
-    <div className="relative w-full rounded-[10px] bg-white">
-      <div className="overflow-clip rounded-[inherit]">
-        <div className="flex flex-col p-px">
+    <div className="rounded-lg border border-neutral-200 bg-white">
+      <div className="flex flex-col gap-4 border-b border-neutral-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-end">
+        <div className="relative ml-auto">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </span>
+          <input
+            type="search"
+            placeholder="Search workflows..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-lg border border-neutral-200 bg-neutral-50 py-2 pl-9 pr-3 text-sm text-neutral-700 placeholder:text-neutral-400 focus:border-neutral-300 focus:outline-none focus:ring-1 focus:ring-neutral-300 sm:w-56"
+          />
+        </div>
+      </div>
 
-          {/* HEADER */}
-          <div
-            className={`grid ${GRID} w-full items-center gap-4 border-b border-zinc-200/60 bg-zinc-50/30 px-6 py-3`}
-          >
-            <div className="text-center text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              {/* Provider column - no header text, just icon */}
-            </div>
-
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              Name
-            </div>
-
-            <div className="text-center text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              Status
-            </div>
-
-            <div className="text-center text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              Health
-            </div>
-
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              Domain
-            </div>
-
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-              Output
-            </div>
+      <div className="overflow-x-auto">
+        <div className="min-w-[800px]">
+          <div className={`grid ${GRID} items-center gap-4 border-b border-neutral-200 bg-neutral-50/80 px-4 py-3 text-left`}>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Name</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Route</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Tool</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Status</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Runs</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Last run</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">Owner</div>
           </div>
-
-          {/* ROWS */}
-          <div className="w-full">
-            {workflows.map((wf, idx) => {
-              const truncatedName = smartTruncate(wf.name, 40);
-              const truncatedOutput = smartTruncate(
-                wf.enrichment.output,
-                80
-              );
-
+          {filtered.length === 0 ? (
+            <div className="px-4 py-12 text-center text-sm text-neutral-500">
+              No workflows match the current filters.
+            </div>
+          ) : (
+            filtered.map((wf, idx) => {
+              const full = workflowById.get(wf.id);
+              const route = getWorkflowRoute(full?.graph);
               return (
                 <Link
                   key={wf.id}
                   href={`/workflows/${wf.id}`}
-                  className={`grid ${GRID} w-full items-center gap-4 border-b border-zinc-200/60 px-6 py-3 transition hover:bg-zinc-50/40 last:border-0 ${
-                    idx % 2 === 0 ? "bg-white" : "bg-zinc-50/20"
-                  }`}
+                  className={`grid ${GRID} items-center gap-4 border-b border-neutral-100 px-4 py-3 text-left transition hover:bg-neutral-50 last:border-0 ${idx % 2 === 0 ? "bg-white" : "bg-neutral-50/30"}`}
                 >
-                  {/* PROVIDER */}
-                  <div className="flex items-center justify-center">
-                    <ProviderIcon tool={wf.tool} />
-                  </div>
-
-                  {/* NAME */}
-                  <div className="min-w-0 text-sm font-medium text-zinc-800">
-                    <span className="block truncate">{truncatedName}</span>
-                  </div>
-
-                  {/* STATUS */}
-                  <div className="flex items-center justify-center">
-                    <StatusBadge active={wf.active} />
-                  </div>
-
-                  {/* HEALTH */}
-                  <div className="flex items-center justify-center">
-                    <HealthBadge status={wf.enrichment.health} />
-                  </div>
-
-                  {/* DOMAIN */}
-                  <div className="text-sm text-zinc-600">
-                    {wf.enrichment.domain}
-                  </div>
-
-                  {/* OUTPUT (focus principal) */}
-                  <div className="min-w-0 text-sm text-zinc-500">
-                    <span className="block truncate">
-                      {truncatedOutput}
-                    </span>
-                  </div>
+                  <div className="min-w-0 truncate text-sm font-medium text-neutral-800">{wf.name}</div>
+                  <div className="min-w-0 truncate text-sm text-neutral-600">{route}</div>
+                  <div><ToolBadge tool={wf.tool} /></div>
+                  <div><StatusCell active={wf.active} health={wf.enrichment.health} /></div>
+                  <div className="text-sm text-neutral-600 tabular-nums">{mockRuns(wf.id)}</div>
+                  <div className="text-sm text-neutral-500">{formatRelativeTime(wf.lastExecutionDate)}</div>
+                  <div className="text-sm text-neutral-600">{mockOwner(wf.id)}</div>
                 </Link>
               );
-            })}
-          </div>
+            })
+          )}
         </div>
       </div>
-
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 rounded-[10px] border border-zinc-200"
-      />
     </div>
   );
 }

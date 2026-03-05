@@ -20,6 +20,10 @@ export interface WorkflowWithEnrichmentFields extends Workflow {
   hasPublicWebhook?: boolean;
   lastExecutionStatus?: "success" | "error" | null;
   lastExecutionDate?: string | null;
+  /** Canonical destination for grouping (from __demo.destination). */
+  outputDestination?: string;
+  /** Override health for demo (from __demo.health). */
+  healthOverride?: "ok" | "warning" | "broken" | "optimizable";
 }
 
 // ─── Generic Demo Workflow Structure ────────────────────────────────────────
@@ -51,6 +55,10 @@ interface DemoWorkflowRaw {
     expectedErrors?: string[];
     duplicateGroup?: string;
     duplicateHint?: string;
+    /** Canonical destination for System Map grouping (e.g. HubSpot, Slack). */
+    destination?: string;
+    /** Override health for demo (ok | warning | broken | optimizable). */
+    health?: "ok" | "warning" | "broken" | "optimizable";
   };
 }
 
@@ -66,6 +74,7 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
       createdAt: "2026-02-01T10:00:00.000Z",
       updatedAt: "2026-02-10T09:00:00.000Z",
       tags: ["marketing", "crm"],
+      __demo: { destination: "HubSpot", health: "optimizable" },
       triggerType: "webhook",
       hasPublicWebhook: true,
       lastExecutionStatus: "success",
@@ -155,6 +164,7 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
       createdAt: "2026-01-15T08:30:00.000Z",
       updatedAt: "2026-02-05T11:12:00.000Z",
       tags: ["crm", "finance", "ops"],
+      __demo: { destination: "Slack" },
       triggerType: "webhook",
       hasPublicWebhook: false,
       lastExecutionStatus: "success",
@@ -240,6 +250,7 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
       createdAt: "2026-02-03T14:00:00.000Z",
       updatedAt: "2026-02-12T18:00:00.000Z",
       tags: ["tech", "devops"],
+      __demo: { destination: "Slack" },
       nodes: [
         {
           id: "n1",
@@ -313,6 +324,7 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
       createdAt: "2026-02-08T09:00:00.000Z",
       updatedAt: "2026-02-12T13:45:00.000Z",
       tags: ["ai", "marketing", "content"],
+      __demo: { destination: "Slack" },
       nodes: [
         {
           id: "n1",
@@ -413,6 +425,7 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
       __demo: {
         duplicateGroup: "dup_marketing_report_1",
         duplicateHint: "Same logic as wf 202 with minor text changes",
+        destination: "Slack",
       },
       nodes: [
         {
@@ -476,6 +489,8 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
         duplicateGroup: "dup_marketing_report_1",
         duplicateHint:
           "Duplicate of wf 201: same node types & connections; name differs",
+        destination: "Slack",
+        health: "warning",
       },
       nodes: [
         {
@@ -527,7 +542,7 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
       },
     },
 
-    // 7) ERROR WORKFLOW – intentionally broken
+    // 7) ERROR WORKFLOW – intentionally broken (Urgent / Critical in Overview)
     {
       id: "999",
       name: "Broken: CRM Sync (for error detection tests)",
@@ -535,7 +550,11 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
       createdAt: "2026-02-12T10:00:00.000Z",
       updatedAt: "2026-02-13T08:00:00.000Z",
       tags: ["broken", "crm"],
+      lastExecutionStatus: "error",
+      lastExecutionDate: "2026-02-13T08:00:00.000Z",
       __demo: {
+        destination: "Slack",
+        health: "broken",
         expectedErrors: [
           "Missing credentials for Salesforce node",
           "Connections reference a non-existent node",
@@ -586,6 +605,124 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
         },
       },
     },
+
+    // 8) Second HubSpot – CRM sync
+    {
+      id: "105",
+      name: "CRM Sync – Update company records in HubSpot",
+      active: true,
+      createdAt: "2026-02-01T08:00:00.000Z",
+      updatedAt: "2026-02-14T12:00:00.000Z",
+      tags: ["sales", "crm"],
+      __demo: { destination: "HubSpot", health: "ok" },
+      triggerType: "cron",
+      hasPublicWebhook: false,
+      lastExecutionStatus: "success",
+      lastExecutionDate: "2026-02-16T06:00:00Z",
+      nodes: [
+        { id: "n1", name: "Schedule Daily", type: "n8n-nodes-base.cron", parameters: { rule: { interval: [{ field: "hours", hoursInterval: 24 }] } } },
+        { id: "n2", name: "Fetch Airtable Records", type: "n8n-nodes-base.airtable", parameters: { operation: "read", base: "crm", table: "Companies" } },
+        { id: "n3", name: "Transform", type: "n8n-nodes-base.function", parameters: { code: "return items;" } },
+        { id: "n4", name: "Update HubSpot Company", type: "n8n-nodes-base.hubspot", parameters: { resource: "company", operation: "update" }, credentials: { hubspotOAuth2Api: { id: "cred_hubspot_1" } } },
+      ],
+      connections: {
+        "Schedule Daily": { main: [[{ node: "Fetch Airtable Records", type: "main", index: 0 }]] },
+        "Fetch Airtable Records": { main: [[{ node: "Transform", type: "main", index: 0 }]] },
+        "Transform": { main: [[{ node: "Update HubSpot Company", type: "main", index: 0 }]] },
+      },
+    },
+
+    // 9) Second Airtable – content calendar
+    {
+      id: "106",
+      name: "Content Calendar – Publish dates to Airtable",
+      active: true,
+      createdAt: "2026-02-05T09:00:00.000Z",
+      updatedAt: "2026-02-14T10:00:00.000Z",
+      tags: ["marketing", "content"],
+      __demo: { destination: "Airtable", health: "ok" },
+      triggerType: "webhook",
+      hasPublicWebhook: false,
+      lastExecutionStatus: "success",
+      lastExecutionDate: "2026-02-15T14:00:00Z",
+      nodes: [
+        { id: "n1", name: "Webhook – Brief", type: "n8n-nodes-base.webhook", parameters: { path: "content-brief", httpMethod: "POST" } },
+        { id: "n2", name: "Create Airtable Record", type: "n8n-nodes-base.airtable", parameters: { base: "content", table: "Calendar", operation: "create" } },
+      ],
+      connections: {
+        "Webhook – Brief": { main: [[{ node: "Create Airtable Record", type: "main", index: 0 }]] },
+      },
+    },
+
+    // 10) Google Sheets – report
+    {
+      id: "107",
+      name: "Weekly Report → Google Sheets",
+      active: true,
+      createdAt: "2026-01-25T10:00:00.000Z",
+      updatedAt: "2026-02-12T09:00:00.000Z",
+      tags: ["operations", "reporting"],
+      __demo: { destination: "Google Sheets", health: "ok" },
+      triggerType: "cron",
+      hasPublicWebhook: false,
+      lastExecutionStatus: "success",
+      lastExecutionDate: "2026-02-16T08:00:00Z",
+      nodes: [
+        { id: "n1", name: "Cron Weekly", type: "n8n-nodes-base.cron", parameters: { schedule: "0 9 * * 1" } },
+        { id: "n2", name: "Fetch Metrics", type: "n8n-nodes-base.httpRequest", parameters: { url: "https://api.example.com/metrics", method: "GET" } },
+        { id: "n3", name: "Append to Google Sheets", type: "n8n-nodes-base.googleSheets", parameters: { operation: "append", sheetId: "sheet1" }, credentials: { googleSheetsOAuth2Api: { id: "cred_sheets_1" } } },
+      ],
+      connections: {
+        "Cron Weekly": { main: [[{ node: "Fetch Metrics", type: "main", index: 0 }]] },
+        "Fetch Metrics": { main: [[{ node: "Append to Google Sheets", type: "main", index: 0 }]] },
+      },
+    },
+
+    // 11) Google Sheets – data export (warning)
+    {
+      id: "108",
+      name: "Data Export to Google Sheets",
+      active: true,
+      createdAt: "2026-02-01T11:00:00.000Z",
+      updatedAt: "2026-02-10T16:00:00.000Z",
+      tags: ["data", "export"],
+      __demo: { destination: "Google Sheets", health: "warning" },
+      triggerType: "manual",
+      hasPublicWebhook: false,
+      lastExecutionStatus: "success",
+      lastExecutionDate: "2026-01-20T10:00:00Z",
+      nodes: [
+        { id: "n1", name: "Manual Trigger", type: "n8n-nodes-base.manualTrigger" },
+        { id: "n2", name: "Read Database", type: "n8n-nodes-base.postgres", parameters: { operation: "executeQuery" } },
+        { id: "n3", name: "Write to Google Sheets", type: "n8n-nodes-base.googleSheets", parameters: { operation: "append" }, credentials: { googleSheetsOAuth2Api: { id: "cred_sheets_1" } } },
+      ],
+      connections: {
+        "Manual Trigger": { main: [[{ node: "Read Database", type: "main", index: 0 }]] },
+        "Read Database": { main: [[{ node: "Write to Google Sheets", type: "main", index: 0 }]] },
+      },
+    },
+
+    // 12) Mailchimp – newsletter
+    {
+      id: "109",
+      name: "Newsletter Signup → Mailchimp",
+      active: true,
+      createdAt: "2026-02-08T14:00:00.000Z",
+      updatedAt: "2026-02-15T11:00:00.000Z",
+      tags: ["marketing", "email"],
+      __demo: { destination: "Mailchimp", health: "warning" },
+      triggerType: "webhook",
+      hasPublicWebhook: true,
+      lastExecutionStatus: "success",
+      lastExecutionDate: "2026-02-16T12:00:00Z",
+      nodes: [
+        { id: "n1", name: "Webhook – Signup", type: "n8n-nodes-base.webhook", parameters: { path: "newsletter-signup", httpMethod: "POST" } },
+        { id: "n2", name: "Add to Mailchimp List", type: "n8n-nodes-base.mailchimp", parameters: { resource: "list", operation: "add" }, credentials: { mailchimpApi: { id: "cred_mailchimp_1" } } },
+      ],
+      connections: {
+        "Webhook – Signup": { main: [[{ node: "Add to Mailchimp List", type: "main", index: 0 }]] },
+      },
+    },
   ];
 
 // Make workflows (2 workflows with Make-specific node types)
@@ -598,6 +735,7 @@ const MAKE_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
     createdAt: "2026-02-05T11:00:00.000Z",
     updatedAt: "2026-02-15T14:30:00.000Z",
     tags: ["ecommerce", "crm"],
+    __demo: { destination: "Airtable", health: "optimizable" },
     triggerType: "webhook",
     hasPublicWebhook: true,
     lastExecutionStatus: "success",
@@ -648,6 +786,7 @@ const MAKE_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
     createdAt: "2026-02-10T09:15:00.000Z",
     updatedAt: "2026-02-18T16:20:00.000Z",
     tags: ["social", "monitoring"],
+    __demo: { destination: "Notion" },
     triggerType: "webhook",
     hasPublicWebhook: false,
     lastExecutionStatus: "success",
@@ -773,22 +912,34 @@ function toDashboardWorkflow(
     hasPublicWebhook: raw.hasPublicWebhook,
     lastExecutionStatus: raw.lastExecutionStatus,
     lastExecutionDate: raw.lastExecutionDate,
+    outputDestination: raw.__demo?.destination,
+    healthOverride: raw.__demo?.health,
   };
 }
 
 // ─── Combined Demo Workflows ───────────────────────────────────────────────────
 
+/**
+ * Curated 10-workflow set for demo dashboard.
+ * Distribution: HubSpot 2, Slack 2, Airtable 2, Google Sheets 2, Notion 1, Mailchimp 1
+ * Health: ok ×5, optimizable ×2, warning ×2, broken ×1
+ *
+ * N8N indices: 0=101(HubSpot), 1=102(Slack), 6=999(Slack/broken),
+ *   7=105(HubSpot), 8=106(Airtable), 9=107(GSheets), 10=108(GSheets), 11=109(Mailchimp)
+ * Make indices: 0=301(Airtable), 1=302(Notion)
+ */
+const N8N_DEMO_INDICES = [0, 1, 6, 7, 8, 9, 10, 11];
+const MAKE_DEMO_INDICES = [0, 1];
+
 /** Typed workflows ready for the dashboard UI.
- * Includes 2 n8n workflows and 2 Make workflows.
- * These workflows include enrichment fields for the Overview page.
+ * Includes workflows for HubSpot, Slack, Airtable, Google Sheets, Notion, Mailchimp.
+ * Health mix: 1 broken, 2 warning, 1 optimizable, rest ok.
  */
 export const DEMO_WORKFLOWS: WorkflowWithEnrichmentFields[] = [
-  // n8n workflows (first 2 from original list)
-  ...N8N_DEMO_WORKFLOWS.slice(0, 2).map((wf) =>
-    toDashboardWorkflow(wf, "n8n", DEMO_CONNECTION_N8N)
+  ...N8N_DEMO_INDICES.map((i) =>
+    toDashboardWorkflow(N8N_DEMO_WORKFLOWS[i], "n8n", DEMO_CONNECTION_N8N)
   ),
-  // Make workflows
-  ...MAKE_DEMO_WORKFLOWS.map((wf) =>
-    toDashboardWorkflow(wf, "make", DEMO_CONNECTION_MAKE)
+  ...MAKE_DEMO_INDICES.map((i) =>
+    toDashboardWorkflow(MAKE_DEMO_WORKFLOWS[i], "make", DEMO_CONNECTION_MAKE)
   ),
 ];

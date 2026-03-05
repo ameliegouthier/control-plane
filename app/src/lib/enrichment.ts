@@ -4,7 +4,19 @@
  * Deterministic keyword heuristics that mimic what a real LLM enrichment
  * would produce.  To swap in real AI: replace getEnrichmentForWorkflow()
  * internals only — the signature and types stay the same.
+ *
+ * Week 6: issues + severity + copy via action-engine (rule-based).
  */
+
+import type { WorkflowIssue } from "@/lib/action-engine/issueEngine";
+import {
+  enrichIssues,
+  getWorkflowSeverity,
+  getWorkflowBuckets,
+  getWorkflowBucket,
+  summarizeWorkflowActions,
+} from "@/lib/action-engine/issueEngine";
+import type { EnrichedIssue, IssueBucket } from "@/lib/action-engine/issueEngine";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -20,6 +32,10 @@ export interface RawWorkflow {
   lastExecutionStatus?: "success" | "error" | null;
   /** ISO date of last execution. null = never ran. */
   lastExecutionDate?: string | null;
+  /** Canonical destination for grouping (e.g. HubSpot, Slack). When set, used as output. */
+  destination?: string;
+  /** Override health for demo/display (e.g. optimizable). */
+  healthOverride?: HealthStatus;
 }
 
 export type WorkflowDomain =
@@ -40,7 +56,7 @@ export type RiskFlag =
   | "high_complexity"
   | "unknown";
 
-export type HealthStatus = "ok" | "warning" | "broken";
+export type HealthStatus = "ok" | "warning" | "broken" | "optimizable";
 
 export interface WorkflowEnrichment {
   domain: WorkflowDomain;
@@ -54,6 +70,26 @@ export interface WorkflowEnrichment {
 
 export type WorkflowWithEnrichment = RawWorkflow & {
   enrichment: WorkflowEnrichment;
+};
+
+/** Extended enrichment with issues + severity + bucket (Urgent vs Optimization). */
+export type WorkflowWithFullEnrichment = WorkflowWithEnrichment & {
+  /** Raw issues from detection (unchanged for backward compatibility). */
+  issues: WorkflowIssue[];
+  /** Issues with bucket, severity + copy (rule-based). */
+  issuesEnriched: EnrichedIssue[];
+  /** Max issue severity 0–100. */
+  severity: number;
+  /** Workflow-level bucket: urgent if any urgent issue, optimization if only optimization, null if no issues. */
+  bucket: IssueBucket | null;
+  /** At least one urgent (Critical) issue. */
+  hasUrgent: boolean;
+  /** At least one optimization (Improve) issue. */
+  hasOptimization: boolean;
+  /** Type of the top-priority issue, if any. */
+  topIssueType?: string;
+  /** Recommended action for the top issue. */
+  topRecommendedAction?: string | null;
 };
 
 export interface DuplicatePair {
@@ -123,6 +159,85 @@ export function detectDuplicates(
   return { pairs, map };
 }
 
+// ─── Issue derivation (Action Engine v0) ─────────────────────────────────────
+
+export type { WorkflowIssue, EnrichedIssue, IssueBucket } from "@/lib/action-engine/issueEngine";
+export { getWorkflowBucket } from "@/lib/action-engine/issueEngine";
+
+/**
+ * Derive raw issues for a single workflow from enrichment + optional duplicate list.
+ * Provider-agnostic; used by the full enrichment pipeline.
+ */
+export function getIssuesForWorkflow(
+  _raw: RawWorkflow,
+  enrichment: WorkflowEnrichment,
+  options?: { duplicateOf?: string[] },
+): WorkflowIssue[] {
+  const issues: WorkflowIssue[] = [];
+
+  if (enrichment.health === "broken") {
+    issues.push({ type: "broken" });
+  }
+  if (enrichment.riskFlags.includes("public_webhook")) {
+    issues.push({ type: "public_webhook" });
+  }
+  if (enrichment.riskFlags.includes("inactive")) {
+    issues.push({ type: "inactive" });
+  }
+  const duplicateOf = options?.duplicateOf;
+  if (duplicateOf?.length) {
+    issues.push({
+      type: "duplicate",
+      metadata: { similarWorkflowNames: duplicateOf },
+    });
+  }
+  if (enrichment.health === "warning" && !issues.some((i) => i.type === "broken")) {
+    issues.push({ type: "warning" });
+  }
+  const otherFlags = enrichment.riskFlags.filter(
+    (f) =>
+      f !== "public_webhook" &&
+      f !== "inactive" &&
+      (f === "no_trigger" || f === "high_complexity" || f === "unknown"),
+  );
+  if (otherFlags.length > 0 && issues.length === 0) {
+    issues.push({ type: "info" });
+  }
+
+  return issues;
+}
+
+/**
+ * Add issues + issuesEnriched + severity + top action to workflows with enrichment.
+ * Non-breaking: call after building WorkflowWithEnrichment[]; duplicate map from detectDuplicates.
+ */
+export function addIssuesToEnrichedWorkflows(
+  workflows: WorkflowWithEnrichment[],
+  duplicateMap: DuplicateMap,
+): WorkflowWithFullEnrichment[] {
+  return workflows.map((wf) => {
+    const issues = getIssuesForWorkflow(wf, wf.enrichment, {
+      duplicateOf: duplicateMap.get(wf.id) ?? undefined,
+    });
+    const issuesEnriched = enrichIssues(issues);
+    const severity = getWorkflowSeverity(issuesEnriched);
+    const summary = summarizeWorkflowActions(issuesEnriched);
+    const { hasUrgent, hasOptimization } = getWorkflowBuckets(issuesEnriched);
+    const bucket = getWorkflowBucket(issuesEnriched);
+    return {
+      ...wf,
+      issues,
+      issuesEnriched,
+      severity,
+      bucket,
+      hasUrgent,
+      hasOptimization,
+      topIssueType: summary.topIssue?.type,
+      topRecommendedAction: summary.topRecommendedAction ?? undefined,
+    };
+  });
+}
+
 // ─── Keyword maps ────────────────────────────────────────────────────────────
 
 const DOMAIN_KEYWORDS: [WorkflowDomain, string[]][] = [
@@ -163,9 +278,9 @@ export function getEnrichmentForWorkflow(raw: RawWorkflow): WorkflowEnrichment {
 
   const domain = detectDomain(name);
   const systems = detectSystems(name);
-  const output = deriveOutput(name, systems, domain);
+  const output = raw.destination ?? deriveOutput(name, systems, domain);
   const riskFlags = deriveRiskFlags(raw, name, domain, systems);
-  const health = deriveHealth(raw, riskFlags);
+  const health = raw.healthOverride ?? deriveHealth(raw, riskFlags);
 
   const hasDomain = domain !== "Unknown";
   const hasSystems = systems.length > 0;

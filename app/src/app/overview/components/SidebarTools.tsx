@@ -205,9 +205,9 @@ export default function SidebarTools({
   onSelectTool,
 }: SidebarToolsProps) {
   return (
-    <aside className="fixed left-5 top-1/2 z-40 -translate-y-1/2">
+    <aside className="fixed left-0 top-0 z-40 flex h-full w-14 flex-col items-center rounded-r-xl border-r border-neutral-200 bg-white py-4">
       <nav
-        className="flex flex-col items-center gap-3 rounded-2xl border border-zinc-200/80 bg-white px-2.5 py-4 shadow-lg shadow-zinc-900/5"
+        className="mt-12 flex flex-col items-center gap-3"
         aria-label="Tool filter"
       >
         {/* Avatar / reset filter */}

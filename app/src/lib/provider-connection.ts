@@ -1,3 +1,4 @@
+import type { ToolType } from "@prisma/client";
 import { prisma } from "./prisma";
 import { getDemoUser } from "./demo-user";
 import type { AutomationProvider } from "./providers/types";
@@ -14,8 +15,9 @@ export interface ProviderConnectionInfo {
 
 /**
  * Map AutomationProvider to Prisma ToolType enum.
+ * Airtable is not in the Connection model; callers should check for null when provider is airtable.
  */
-function mapProviderToToolType(provider: AutomationProvider): "N8N" | "MAKE" | "ZAPIER" | "AIRTABLE" {
+function mapProviderToToolType(provider: AutomationProvider): ToolType | null {
   switch (provider) {
     case "n8n":
       return "N8N";
@@ -24,19 +26,20 @@ function mapProviderToToolType(provider: AutomationProvider): "N8N" | "MAKE" | "
     case "zapier":
       return "ZAPIER";
     case "airtable":
-      return "AIRTABLE";
+      return null;
   }
 }
 
 /**
  * Load the active connection for a specific provider from DB for the current user.
- * Generic version that works for any provider.
+ * Generic version that works for any provider. Returns null for Airtable (not in Connection model).
  */
 export async function getProviderConnection(
   provider: AutomationProvider
 ): Promise<ProviderConnectionInfo | null> {
   const user = await getDemoUser();
   const tool = mapProviderToToolType(provider);
+  if (tool === null) return null;
 
   const connection = await prisma.connection.findUnique({
     where: { userId_tool: { userId: user.id, tool } },

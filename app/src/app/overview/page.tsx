@@ -6,33 +6,29 @@ import ConnectProviderModal from "../connect-provider-modal";
 import { getAllWorkflowsAsRaw, getAllWorkflows } from "@/lib/repositories/workflowsRepository";
 import type { AutomationProvider } from "@/app/workflow-helpers";
 import {
-  type WorkflowWithEnrichment,
-  type WorkflowDomain,
+  type WorkflowWithFullEnrichment,
+  type HealthStatus,
   getEnrichmentForWorkflow,
   detectDuplicates,
+  addIssuesToEnrichedWorkflows,
 } from "@/lib/enrichment";
 
 import SidebarTools from "./components/SidebarTools";
-import TopDomainTabs from "./components/TopDomainTabs";
-import KpiCards from "./components/KpiCards";
-import NeedsAttentionPanel from "./components/NeedsAttentionPanel";
+import KpiCards, { computeSystemHealth } from "./components/KpiCards";
+import SystemMap from "./components/SystemMap";
 import WorkflowList from "./components/WorkflowList";
+import ActionCenter, { type ActionItem } from "./components/ActionCenter";
 
-// ─── Extended type: workflow + enrichment + tool ─────────────────────────────
+type EnrichedWorkflow = WorkflowWithFullEnrichment & { tool: AutomationProvider };
 
-type EnrichedWorkflow = WorkflowWithEnrichment & { tool: AutomationProvider };
-
-// ─── Overview Page ───────────────────────────────────────────────────────────
+export type StatusFilter = "all" | "ok" | "broken" | "inactive";
 
 export default function OverviewPage() {
-  const [selectedDomain, setSelectedDomain] = useState<
-    WorkflowDomain | "all"
-  >("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Close dropdown on Escape
   useEffect(() => {
     if (!menuOpen) return;
     const handleKey = (e: KeyboardEvent) => {
@@ -44,11 +40,10 @@ export default function OverviewPage() {
 
   // ─── Enrichment ──────────────────────────────────────────────
 
-  // Get workflows from single source of truth
   const rawWorkflows = useMemo(() => getAllWorkflowsAsRaw(), []);
   const workflows = useMemo(() => getAllWorkflows(), []);
 
-  const enriched: EnrichedWorkflow[] = useMemo(
+  const enrichedBase = useMemo(
     () =>
       rawWorkflows.map((w) => {
         const workflow = workflows.find((wf) => wf.id === w.id);
@@ -61,59 +56,109 @@ export default function OverviewPage() {
     [rawWorkflows, workflows],
   );
 
-  // ─── Domain counts (always on full dataset) ─────────────────
+  const duplicateMapFull = useMemo(
+    () => detectDuplicates(enrichedBase).map,
+    [enrichedBase],
+  );
 
-  const domainCounts = useMemo(() => {
-    const map = new Map<WorkflowDomain, number>();
-    for (const wf of enriched) {
-      const d = wf.enrichment.domain;
-      map.set(d, (map.get(d) ?? 0) + 1);
-    }
-    return map;
+  const enriched: EnrichedWorkflow[] = useMemo(
+    () =>
+      addIssuesToEnrichedWorkflows(enrichedBase, duplicateMapFull).map((wf) => ({
+        ...wf,
+        tool: (enrichedBase.find((e) => e.id === wf.id)?.tool ?? "n8n") as AutomationProvider,
+      })),
+    [enrichedBase, duplicateMapFull],
+  );
+
+  // ─── Urgent (broken only) vs Optimization ─────────────────────────────
+
+  const urgentActions: ActionItem[] = useMemo(() => {
+    const list = enriched.filter((wf) => wf.enrichment.health === "broken");
+    const sorted = [...list].sort((a, b) => {
+      if (b.severity !== a.severity) return b.severity - a.severity;
+      return (a.name ?? "").localeCompare(b.name ?? "", undefined, { sensitivity: "base" });
+    });
+    return sorted.map((workflow) => ({
+      workflow: {
+        id: workflow.id,
+        name: workflow.name,
+        tool: workflow.tool,
+        severity: workflow.severity,
+        bucket: "urgent" as const,
+        issuesEnriched: workflow.issuesEnriched,
+        issues: workflow.issues,
+      },
+      topIssue: workflow.issuesEnriched?.find((i) => i.bucket === "urgent") ?? workflow.issuesEnriched?.[0],
+    }));
   }, [enriched]);
 
-  // ─── Filtering: intersection of domain + tool ───────────────
+  const optimizationActions: ActionItem[] = useMemo(() => {
+    const list = enriched.filter(
+      (wf) => wf.hasOptimization && wf.enrichment.health !== "broken",
+    );
+    const sorted = [...list].sort((a, b) => b.severity - a.severity);
+    return sorted.map((workflow) => ({
+      workflow: {
+        id: workflow.id,
+        name: workflow.name,
+        tool: workflow.tool,
+        severity: workflow.severity,
+        bucket: "optimization" as const,
+        issuesEnriched: workflow.issuesEnriched,
+        issues: workflow.issues,
+      },
+      topIssue: workflow.issuesEnriched?.find((i) => i.bucket === "optimization") ?? workflow.issuesEnriched?.[0],
+    }));
+  }, [enriched]);
+
+  // ─── Filtering (status + tool) ───────────────────────────────
 
   const filtered = useMemo(() => {
     let result: EnrichedWorkflow[] = enriched;
-    if (selectedDomain !== "all") {
-      result = result.filter(
-        (wf) => wf.enrichment.domain === selectedDomain,
-      );
+    if (statusFilter === "ok") {
+      result = result.filter((wf) => wf.active && wf.enrichment.health !== "broken");
+    } else if (statusFilter === "broken") {
+      result = result.filter((wf) => wf.enrichment.health === "broken");
+    } else if (statusFilter === "inactive") {
+      result = result.filter((wf) => !wf.active);
     }
     if (selectedTool) {
       result = result.filter((wf) => wf.tool === selectedTool);
     }
     return result;
-  }, [enriched, selectedDomain, selectedTool]);
+  }, [enriched, statusFilter, selectedTool]);
 
-  // ─── KPI counts ─────────────────────────────────────────────
+  // ─── KPI metrics ─────────────────────────────────────────────
 
-  const totalCount = filtered.length;
-  const activeCount = filtered.filter((w) => w.active).length;
-
-  const brokenWorkflows = useMemo(
-    () => filtered.filter((wf) => wf.enrichment.health === "broken"),
+  const totalWorkflows = filtered.length;
+  const activeWorkflows = filtered.filter((w) => w.active).length;
+  const idleCount = filtered.filter((w) => !w.active).length;
+  const brokenCount = filtered.filter((w) => w.enrichment.health === "broken").length;
+  const connectionCount = useMemo(
+    () => new Set(filtered.map((w) => w.tool)).size,
     [filtered],
   );
-  const warningWorkflows = useMemo(
-    () => filtered.filter((wf) => wf.enrichment.health === "warning"),
+  const connectionNames = useMemo(
+    () => Array.from(new Set(filtered.map((w) => w.tool))).join(" · ") || "None",
     [filtered],
   );
-  const { pairs: duplicatePairs, map: duplicateMap } = useMemo(
+  const systemHealth = useMemo(
+    () => computeSystemHealth(filtered.map((w) => w.enrichment.health as HealthStatus)),
+    [filtered],
+  );
+  const executionFailures = filtered.filter(
+    (w) => w.lastExecutionStatus === "error",
+  ).length;
+
+  const fullWorkflowsForTable = useMemo(() => {
+    const ids = new Set(filtered.map((wf) => wf.id));
+    return workflows.filter((w) => ids.has(w.id));
+  }, [filtered, workflows]);
+
+  const { map: duplicateMap } = useMemo(
     () => detectDuplicates(filtered),
     [filtered],
   );
-
-  const needsAttentionCount =
-    brokenWorkflows.length +
-    warningWorkflows.length +
-    duplicatePairs.length;
-
-  // Overview display limits: 1 broken, 3 warnings, 1 duplicate
-  const displayBroken = brokenWorkflows.slice(0, 1);
-  const displayWarnings = warningWorkflows.slice(0, 3);
-  const displayDuplicates = duplicatePairs.slice(0, 1);
 
   // ─── Handlers ───────────────────────────────────────────────
 
@@ -122,9 +167,9 @@ export default function OverviewPage() {
   }, []);
 
   const handleExportJson = useCallback(() => {
-    const workflows = getAllWorkflows();
+    const wfs = getAllWorkflows();
     const blob = new Blob(
-      [JSON.stringify(workflows, null, 2)],
+      [JSON.stringify(wfs, null, 2)],
       { type: "application/json" },
     );
     const url = URL.createObjectURL(blob);
@@ -138,8 +183,14 @@ export default function OverviewPage() {
 
   // ─── Render ─────────────────────────────────────────────────
 
+  const allSystemsOk = systemHealth >= 80 && executionFailures === 0;
+
+  const okCount = enriched.filter((w) => w.active && w.enrichment.health !== "broken").length;
+  const brokenCountAll = enriched.filter((w) => w.enrichment.health === "broken").length;
+  const inactiveCountAll = enriched.filter((w) => !w.active).length;
+
   return (
-    <div className="min-h-screen bg-[#fafaf9]">
+    <div className="min-h-screen bg-[#fafafa]">
       <SidebarTools
         selectedTool={selectedTool}
         onSelectTool={setSelectedTool}
@@ -152,120 +203,134 @@ export default function OverviewPage() {
         onSuccess={handleConnectSuccess}
       />
 
-      <main className="pl-24">
-        <div className="mx-auto max-w-6xl px-10 py-10">
-          {/* ─── Top bar (2 rows like the mock) ───────────────── */}
-          <div className="mb-8">
-            {/* Row 1: actions on the right */}
-            <div className="flex h-[26px] items-center justify-end gap-2">
-              {/* Offline mode with menu */}
-              <div className="relative h-full">
+      <main className="pl-20">
+        <div className="mx-auto max-w-[1360px] px-8 py-8">
+          {/* ─── Header ─────────────────────────────────────────── */}
+          <div className="mb-8 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-semibold text-neutral-900">Governance</h1>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${allSystemsOk ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                  {allSystemsOk ? "All systems operational" : "Needs attention"}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-neutral-500">
+                Discover, understand, and fix your automation system.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center gap-1.5 text-xs text-neutral-500">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                Last synced 2m ago
+              </span>
+              <div className="relative">
                 <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuOpen((prev) => !prev);
-                  }}
-                  className="inline-flex h-full cursor-pointer items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3.5 text-[10px] font-medium text-zinc-500 transition hover:bg-zinc-50"
+                  onClick={(e) => { e.stopPropagation(); setMenuOpen((prev) => !prev); }}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-600 transition hover:bg-neutral-50"
                 >
-                  <span className="h-1.5 w-1.5 rounded-full bg-zinc-300" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" />
                   Offline mode
                 </span>
-
                 {menuOpen && (
                   <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setMenuOpen(false)}
-                    />
-                    <div
-                      className="absolute right-0 top-full z-50 mt-2 w-52 rounded-xl border border-zinc-200 bg-white py-1.5 shadow-lg shadow-zinc-900/5"
-                      role="menu"
-                    >
-                      <Link
-                        href="/workflows"
-                        role="menuitem"
-                        className="block px-4 py-2 text-sm text-zinc-700 transition hover:bg-zinc-50"
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        View all workflows
-                      </Link>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={handleExportJson}
-                        className="block w-full px-4 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50"
-                      >
-                        Export JSON
-                      </button>
-                      <Link
-                        href="/connections"
-                        role="menuitem"
-                        className="block px-4 py-2 text-sm text-zinc-700 transition hover:bg-zinc-50"
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        Manage connections
-                      </Link>
+                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                    <div className="absolute right-0 top-full z-50 mt-2 w-52 rounded-lg border border-neutral-200 bg-white py-1.5 shadow-lg" role="menu">
+                      <Link href="/workflows" role="menuitem" className="block px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50" onClick={() => setMenuOpen(false)}>View all workflows</Link>
+                      <button type="button" role="menuitem" onClick={handleExportJson} className="block w-full px-4 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50">Export JSON</button>
+                      <Link href="/connections" role="menuitem" className="block px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-50" onClick={() => setMenuOpen(false)}>Manage connections</Link>
                     </div>
                   </>
                 )}
               </div>
-
-              <button
-                type="button"
-                onClick={() => setShowConnectModal(true)}
-                className="h-full rounded-xl bg-zinc-900 px-4 text-[10px] font-medium text-white transition hover:bg-zinc-800"
-              >
-                Connect n8n
-              </button>
-            </div>
-
-            {/* Row 2: tabs aligned with container */}
-            <div className="mt-6">
-              <TopDomainTabs
-                domains={domainCounts}
-                selectedDomain={selectedDomain}
-                onSelectDomain={setSelectedDomain}
-                totalCount={enriched.length}
-              />
+              <button type="button" onClick={() => setShowConnectModal(true)} className="rounded-lg bg-neutral-900 px-4 py-2 text-xs font-medium text-white transition hover:bg-neutral-800">Connect n8n</button>
             </div>
           </div>
 
-          {/* ─── KPI Cards ───────────────────────────────────── */}
-          <div className="mt-8">
+          {/* Status filter: All | OK | Broken | Inactive */}
+          <div className="mt-6 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setStatusFilter("all")}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                statusFilter === "all"
+                  ? "bg-neutral-800 text-white"
+                  : "bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+              }`}
+            >
+              All {enriched.length}
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter("ok")}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                statusFilter === "ok"
+                  ? "bg-neutral-800 text-white"
+                  : "bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+              }`}
+            >
+              OK {okCount}
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter("broken")}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                statusFilter === "broken"
+                  ? "bg-neutral-800 text-white"
+                  : "bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+              }`}
+            >
+              Broken {brokenCountAll}
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter("inactive")}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                statusFilter === "inactive"
+                  ? "bg-neutral-800 text-white"
+                  : "bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+              }`}
+            >
+              Inactive {inactiveCountAll}
+            </button>
+          </div>
+
+          {/* 1 ─── System Overview ─────────────────────────────── */}
+          <section className="mt-10">
+            <div className="mb-4 flex items-center gap-2">
+              <div className="h-4 w-px bg-neutral-300" />
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">System Overview</h2>
+            </div>
             <KpiCards
-              total={totalCount}
-              active={activeCount}
-              needsAttention={needsAttentionCount}
+              totalWorkflows={totalWorkflows}
+              connections={connectionCount}
+              systemHealth={systemHealth}
+              executionFailures={executionFailures}
+              activeWorkflows={activeWorkflows}
+              idleCount={idleCount}
+              brokenCount={brokenCount}
+              connectionNames={connectionNames}
             />
+          </section>
+
+          {/* 2 ─── System Map ──────────────────────────────────── */}
+          <div className="mt-10">
+            <SystemMap workflows={filtered} />
           </div>
 
-          {/* ─── Needs Attention ──────────────────────────────── */}
-          <div className="mt-8">
-            <NeedsAttentionPanel
-              broken={displayBroken}
-              warnings={displayWarnings}
-              duplicates={displayDuplicates}
-            />
-          </div>
+          <div className="my-10 h-px bg-neutral-200" />
 
-          {/* ─── Separator ──────────────────────────────────────── */}
-          <div className="my-10 h-px bg-zinc-200" />
+          {/* 3 ─── Action Center ────────────────────────────────── */}
+          <ActionCenter urgentItems={urgentActions} optimizationItems={optimizationActions} />
 
-          {/* ─── Workflows List ─────────────────────────────────── */}
+          <div className="my-10 h-px bg-neutral-200" />
+
+          {/* 4 ─── Workflow Table ───────────────────────────────── */}
           <section>
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-400">
-                Workflows ({filtered.length})
-              </h2>
-              <Link
-                href="/workflows"
-                className="text-xs font-medium text-zinc-500 transition hover:text-zinc-700"
-              >
-                Open table view →
-              </Link>
+            <div className="mb-4 flex items-center gap-2">
+              <div className="h-4 w-px bg-neutral-300" />
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">All Workflows</h2>
             </div>
-
-            <WorkflowList workflows={filtered} duplicateMap={duplicateMap} />
+            <WorkflowList workflows={filtered} fullWorkflows={fullWorkflowsForTable} duplicateMap={duplicateMap} />
           </section>
         </div>
       </main>

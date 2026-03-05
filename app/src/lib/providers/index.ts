@@ -10,7 +10,7 @@ import type { ProviderAdapter, AutomationProvider } from "./types";
 
 // ─── Adapter Registry ──────────────────────────────────────────────────────────
 
-const adapters: Map<AutomationProvider, ProviderAdapter> = new Map([
+const adapters = new Map<AutomationProvider, ProviderAdapter>([
   ["n8n", new N8NAdapter()],
   ["make", new MakeAdapter()],
 ]);
