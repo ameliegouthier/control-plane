@@ -1,0 +1,27 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap");
+@import "tailwindcss";
+@import "./fonts.css";
+@import "./theme.css";
+
+/* Base layout/colors inherited from theme.css @layer base.
+   Inter is loaded via fonts.css (Google Fonts URL); --font-sans in theme.css uses --font-inter. */
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* Fix Next.js portal positioning and prevent it from intercepting clicks when empty */
+nextjs-portal {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  pointer-events: none !important;
+}
+nextjs-portal > * {
+  pointer-events: auto;
+}
