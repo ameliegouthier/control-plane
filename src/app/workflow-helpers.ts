@@ -6,6 +6,7 @@ import type {
   WorkflowGraphEdge,
   AutomationProvider,
 } from "@/lib/providers/types";
+import { extractNotionDatabaseId } from "@/lib/providers/notion-resources";
 
 // ─── Re-export provider-agnostic types ────────────────────────────────────────
 
@@ -70,9 +71,7 @@ export function toWorkflow(db: DbWorkflow): Workflow {
     graph = { nodes, edges };
   } else if (hasLegacyGraph) {
     const rawNodes = actions.nodes;
-    const legacyNodes: { id: string; name: string; type: string }[] = Array.isArray(rawNodes)
-      ? rawNodes.map(parseLegacyNode).filter((n): n is { id: string; name: string; type: string } => n != null)
-      : [];
+    const rawNodesArray = Array.isArray(rawNodes) ? rawNodes : [];
 
     const rawConns = actions.connections;
     const legacyConnections =
@@ -84,23 +83,40 @@ export function toWorkflow(db: DbWorkflow): Workflow {
           }>)
         : {};
 
-    const graphNodes: WorkflowGraphNode[] = legacyNodes.map((n) => {
-      const typeLower = n.type.toLowerCase();
-      let kind: "trigger" | "action" | "router" | "other" = "other";
-      if (typeLower.includes("trigger") || typeLower.includes("webhook")) {
-        kind = "trigger";
-      } else if (typeLower.includes("if") || typeLower.includes("switch") || typeLower.includes("router")) {
-        kind = "router";
-      } else if (!typeLower.includes("trigger")) {
-        kind = "action";
-      }
-      return {
-        id: n.id,
-        label: n.name,
-        kind,
-        type: n.type,
-      };
-    });
+    const graphNodes: WorkflowGraphNode[] = rawNodesArray
+      .map((raw): WorkflowGraphNode | null => {
+        const legacy = parseLegacyNode(raw);
+        if (!legacy) return null;
+        const typeLower = legacy.type.toLowerCase();
+        let kind: "trigger" | "action" | "router" | "other" = "other";
+        if (typeLower.includes("trigger") || typeLower.includes("webhook")) {
+          kind = "trigger";
+        } else if (typeLower.includes("if") || typeLower.includes("switch") || typeLower.includes("router")) {
+          kind = "router";
+        } else if (!typeLower.includes("trigger")) {
+          kind = "action";
+        }
+        const params =
+          (raw != null && typeof raw === "object" && (raw as Record<string, unknown>).parameters) as
+            | Record<string, unknown>
+            | undefined ?? {};
+        const node: WorkflowGraphNode = {
+          id: legacy.id,
+          label: legacy.name,
+          kind,
+          type: legacy.type,
+        };
+        if (typeLower.includes("notion")) {
+          const databaseId = extractNotionDatabaseId({ parameters: params });
+          if (databaseId) node.databaseId = databaseId;
+        }
+        if (typeLower.includes("slack")) {
+          const channel = params.channel;
+          if (typeof channel === "string" && channel) node.channelId = channel;
+        }
+        return node;
+      })
+      .filter((n): n is WorkflowGraphNode => n != null);
 
     // Map node label (name) to id so edges use ids and buildMiniMap can resolve branches
     const nameToId = new Map<string, string>();
@@ -147,12 +163,15 @@ function parseGraphNode(val: unknown): WorkflowGraphNode | null {
   if (typeof obj.id !== "string" || typeof obj.label !== "string" || typeof obj.type !== "string") {
     return null;
   }
-  return {
+  const node: WorkflowGraphNode = {
     id: obj.id,
     label: obj.label,
     kind: (obj.kind as "trigger" | "action" | "router" | "other") ?? "other",
     type: obj.type,
   };
+  if (typeof obj.databaseId === "string" && obj.databaseId) node.databaseId = obj.databaseId;
+  if (typeof obj.channelId === "string" && obj.channelId) node.channelId = obj.channelId;
+  return node;
 }
 
 /**
@@ -185,6 +204,10 @@ export interface MiniMapNode {
   name: string;
   type: string;
   label: string;
+  /** Notion database ID when present. */
+  databaseId?: string;
+  /** Slack channel ID or name when present. */
+  channelId?: string;
 }
 
 export interface MiniMap {
@@ -487,6 +510,8 @@ export function buildMiniMap(graph: WorkflowGraph | undefined): MiniMap {
     name: n.label,
     type: n.type,
     label: formatNodeType(n.type),
+    ...(n.databaseId != null && { databaseId: n.databaseId }),
+    ...(n.channelId != null && { channelId: n.channelId }),
   });
 
   const trigger = getTriggerNode(graph);

@@ -112,7 +112,6 @@ export async function testN8nConnection(baseUrl: string): Promise<N8nTestResult>
 
   // Step 1 — reachability
   try {
-    console.log("[n8n-client] reachability check →", url);
     await fetch(url, {
       headers: commonHeaders(),
       signal: AbortSignal.timeout(10_000),
@@ -123,7 +122,6 @@ export async function testN8nConnection(baseUrl: string): Promise<N8nTestResult>
 
   // Step 2 — try /rest/workflows
   try {
-    console.log("[n8n-client] API check →", `${url}/rest/workflows?limit=1`);
     const res = await fetch(`${url}/rest/workflows?limit=1`, {
       headers: commonHeaders(),
       signal: AbortSignal.timeout(10_000),

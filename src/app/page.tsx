@@ -16,7 +16,6 @@ export default async function Home() {
   // ─── Server-side demo mode: skip DB/n8n entirely ─────────────
   if (isServerDemoMode) {
     const demoWorkflows = getAllWorkflows();
-    console.log("WORKFLOWS (DEMO MODE):", demoWorkflows);
     return (
       <Dashboard
         workflows={demoWorkflows}
@@ -67,8 +66,6 @@ export default async function Home() {
       error = e instanceof Error ? e.message : "Could not load workflows";
     }
   }
-
-  console.log("WORKFLOWS:", workflows);
 
   return (
     <Dashboard

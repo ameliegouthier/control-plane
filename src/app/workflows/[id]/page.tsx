@@ -202,6 +202,8 @@ interface DetailNode {
   label: string;
   type: DetailNodeType;
   service?: string;
+  databaseId?: string;
+  channelId?: string;
 }
 
 const nodeTheme: Record<
@@ -256,6 +258,8 @@ function toDetailNode(
     label: node.name,
     type: getDetailNodeTypeByPosition(node.type, index, chainLength, isMainChain),
     service: getServiceLabel(node.type),
+    ...(node.databaseId != null && { databaseId: node.databaseId }),
+    ...(node.channelId != null && { channelId: node.channelId }),
   };
 }
 
@@ -335,6 +339,12 @@ function GraphNode({ node }: { node: DetailNode }) {
         <span className="text-[10px] text-gray-400 mt-1.5" style={{ lineHeight: "14px" }}>
           {node.service}
         </span>
+      )}
+      {(node.databaseId != null || node.channelId != null) && (
+        <div className="text-[10px] text-gray-500 mt-1 space-y-0.5" style={{ lineHeight: "14px" }}>
+          {node.databaseId != null && <div>Database: {node.databaseId}</div>}
+          {node.channelId != null && <div>Channel: {node.channelId}</div>}
+        </div>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { saveDashboardScroll } from "@/lib/dashboard-scroll";
 import type { WorkflowWithEnrichment, DuplicateMap } from "@/lib/enrichment";
@@ -109,6 +109,34 @@ function ExternalLinkIcon({ className }: { className?: string }) {
   );
 }
 
+function ChevronDown({ className, expanded }: { className?: string; expanded: boolean }) {
+  return (
+    <svg
+      className={className}
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
+const PROBLEM_SOLVED_TRUNCATE = 56;
+const COLLAPSED_SIZE = 5;
+const PAGE_SIZE = 10;
+
+function truncate(str: string, maxLen: number): string {
+  if (!str || str.length <= maxLen) return str;
+  return str.slice(0, maxLen).trim() + "…";
+}
+
 export default function WorkflowList({
   workflows,
   fullWorkflows,
@@ -117,6 +145,8 @@ export default function WorkflowList({
   statusCounts,
 }: WorkflowListProps) {
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [listExpanded, setListExpanded] = useState(false);
 
   const workflowById = useMemo(() => {
     const map = new Map<string, Workflow>();
@@ -129,6 +159,21 @@ export default function WorkflowList({
     const q = search.trim().toLowerCase();
     return workflows.filter((w) => w.name.toLowerCase().includes(q));
   }, [workflows, search]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [search, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages - 1);
+  const paginatedRows = useMemo(
+    () => filtered.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE),
+    [filtered, currentPage]
+  );
+
+  const displayedRows = listExpanded ? paginatedRows : filtered.slice(0, COLLAPSED_SIZE);
+  const hasMoreWorkflows = filtered.length > COLLAPSED_SIZE;
+  const showExpandButton = filtered.length > 0 && hasMoreWorkflows;
 
   const showStatusFilter = statusFilter != null && onStatusFilterChange != null && statusCounts != null;
 
@@ -216,21 +261,22 @@ export default function WorkflowList({
                 </td>
               </tr>
             ) : (
-              filtered.map((wf) => {
+              displayedRows.map((wf) => {
                 const full = workflowById.get(wf.id);
                 const problemSolved = full
                   ? generateDraftIntent(full).problemSolved
                   : "—";
+                const problemSolvedShort = truncate(problemSolved, PROBLEM_SOLVED_TRUNCATE);
                 return (
                   <tr
                     key={wf.id}
                     className="hover:bg-gray-50/40 transition-colors group cursor-default"
-                    style={{ borderBottom: '1px solid rgba(0,0,0,0.03)' }}
+                    style={{ borderBottom: "1px solid rgba(0,0,0,0.03)" }}
                   >
                     <td className="px-4 py-2.5 text-[13px] text-gray-900">
                       {wf.name}
                     </td>
-                    <td className="px-4 py-2.5 text-[12px] text-gray-400">{problemSolved}</td>
+                    <td className="px-4 py-2.5 text-[12px] text-gray-400">{problemSolvedShort}</td>
                     <td className="px-4 py-2.5"><ToolBadge tool={wf.tool} /></td>
                     <td className="px-4 py-2.5"><StatusCell active={wf.active} health={wf.enrichment.health} /></td>
                     <td className="px-4 py-2.5 text-[12px] text-gray-500 tabular-nums">{mockRuns(wf.id)}</td>
@@ -252,6 +298,55 @@ export default function WorkflowList({
             )}
           </tbody>
         </table>
+
+        {/* Pagination (only when list is expanded and more than one page) */}
+        {filtered.length > 0 && listExpanded && totalPages > 1 && (
+          <div
+            className="flex items-center justify-center gap-4 py-2.5"
+            style={{ borderTop: "1px solid rgba(0,0,0,0.05)" }}
+          >
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={currentPage === 0}
+              className="text-[12px] text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              Previous
+            </button>
+            <span className="text-[12px] text-gray-400">
+              Page {currentPage + 1} of {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={currentPage >= totalPages - 1}
+              className="text-[12px] text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              Next
+            </button>
+          </div>
+        )}
+
+        {/* Show more workflows / Show less */}
+        {showExpandButton && (
+          <button
+            type="button"
+            onClick={() => {
+              if (!listExpanded) setPage(0);
+              setListExpanded((e) => !e);
+            }}
+            className="w-full flex items-center justify-center gap-1.5 py-2.5 cursor-pointer transition-colors duration-150 hover:bg-gray-50"
+            style={{ borderTop: "1px solid rgba(0,0,0,0.05)" }}
+          >
+            <span className="text-[11px] text-gray-400">
+              {listExpanded ? "Show less" : `Show more workflows (${filtered.length})`}
+            </span>
+            <ChevronDown
+              className="w-3 h-3 text-gray-400 transition-transform duration-200"
+              expanded={listExpanded}
+            />
+          </button>
+        )}
       </div>
     </div>
   );

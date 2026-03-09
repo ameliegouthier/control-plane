@@ -37,12 +37,17 @@ export interface WorkflowCore {
 /**
  * Provider-agnostic graph node representation.
  * Normalized from provider-specific node formats.
+ * Optional resource fields for nodes that interact with external services (Notion, Slack, etc.).
  */
 export interface WorkflowGraphNode {
   id: string;
   label: string; // Human-readable name
   kind: "trigger" | "action" | "router" | "other";
   type: string; // Provider-specific type (may contain prefixes like "n8n-nodes-base.webhook")
+  /** Notion database ID (when type contains "notion"). */
+  databaseId?: string;
+  /** Slack channel ID or channel name (when type contains "slack"), from parameters.channel. */
+  channelId?: string;
 }
 
 /**

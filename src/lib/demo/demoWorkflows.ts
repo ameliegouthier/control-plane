@@ -7,6 +7,7 @@
  */
 
 import type { Workflow, WorkflowGraph, WorkflowGraphNode, WorkflowGraphEdge } from "@/app/workflow-helpers";
+import { extractNotionDatabaseId } from "@/lib/providers/notion-resources";
 import type { RawWorkflow } from "@/lib/enrichment";
 
 // Demo connection IDs (simulates real connections)
@@ -184,6 +185,7 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
           parameters: {
             resource: "databasePage",
             operation: "getAll",
+            databaseId: "db_tasks",
             filter: { email: "={{$json.customer_email}}" },
           },
           credentials: { notionApi: { id: "cred_notion_1" } },
@@ -195,6 +197,7 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
           parameters: {
             resource: "databasePage",
             operation: "update",
+            databaseId: "db_tasks",
             fields: { status: "Active" },
           },
           credentials: { notionApi: { id: "cred_notion_1" } },
@@ -205,7 +208,7 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
           type: "n8n-nodes-base.slack",
           parameters: {
             operation: "post",
-            channel: "#sales",
+            channel: "C04ABC123",
             text: "New paying customer",
           },
           credentials: { slackOAuth2Api: { id: "cred_slack_1" } },
@@ -835,7 +838,7 @@ function toDashboardWorkflow(
   provider: "n8n" | "make",
   connectionId: string
 ): WorkflowWithEnrichmentFields {
-  // Convert raw nodes to WorkflowGraph format
+  // Convert raw nodes to WorkflowGraph format (including external resource IDs)
   const graphNodes: WorkflowGraphNode[] = raw.nodes.map((n) => {
     const typeLower = n.type.toLowerCase();
     let kind: "trigger" | "action" | "router" | "other" = "other";
@@ -847,12 +850,22 @@ function toDashboardWorkflow(
       kind = "action";
     }
 
-    return {
+    const params = n.parameters ?? {};
+    const node: WorkflowGraphNode = {
       id: n.id,
       label: n.name,
       kind,
       type: n.type,
     };
+    if (typeLower.includes("notion")) {
+      const databaseId = extractNotionDatabaseId(n);
+      if (databaseId) node.databaseId = databaseId;
+    }
+    if (typeLower.includes("slack")) {
+      const channel = params.channel;
+      if (typeof channel === "string" && channel) node.channelId = channel;
+    }
+    return node;
   });
 
   // Convert raw connections to WorkflowGraph edges

@@ -40,8 +40,3 @@ export function getDestinationByName(name: string): DestinationMeta | undefined 
   const slug = nameToSlug(name);
   return slugToDestination.get(slug) ?? nameToDestination.get(name);
 }
-
-/** All destination slugs for validation or iteration */
-export function getAllDestinationSlugs(): string[] {
-  return DESTINATIONS.map((d) => d.slug);
-}

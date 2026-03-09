@@ -101,11 +101,13 @@ export default function SystemMap({ workflows }: SystemMapProps) {
                 <ArrowRight className="w-4 h-4 text-gray-200 group-hover:text-gray-400 transition-colors" />
               </div>
               {/* Workflow list */}
-              <div className="px-5 pb-5 space-y-3">
-                {list.map((wf) => (
-                  <div key={wf.id}>
-                    <div className="text-[13px] text-gray-800">{wf.name}</div>
-                    <div className="text-[12px] text-gray-400">{wf.enrichment.output}</div>
+              <div className="px-5 pb-5">
+                {list.map((wf, index) => (
+                  <div
+                    key={wf.id}
+                    className={`text-[13px] text-gray-800 ${list.length > 1 && index < list.length - 1 ? "pb-3 mb-3 border-b border-gray-100" : ""}`}
+                  >
+                    {wf.name}
                   </div>
                 ))}
               </div>

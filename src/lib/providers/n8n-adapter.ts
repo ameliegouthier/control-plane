@@ -19,6 +19,7 @@ import type {
   WorkflowGraphEdge,
   RawProviderWorkflow,
 } from "./types";
+import { extractNotionDatabaseId } from "./notion-resources";
 
 // ─── n8n-specific types ────────────────────────────────────────────────────────
 
@@ -104,7 +105,7 @@ export class N8NAdapter implements ProviderAdapter {
       return null;
     }
 
-    // Normalize nodes to WorkflowGraph format
+    // Normalize nodes to WorkflowGraph format (including external resource IDs)
     const rawNodes = n8nWorkflow.nodes ?? [];
     const graphNodes: WorkflowGraphNode[] = rawNodes.map((n, index) => {
       const nodeId = n.id ?? `node_${index}`;
@@ -122,12 +123,24 @@ export class N8NAdapter implements ProviderAdapter {
         kind = "action";
       }
 
-      return {
+      const base: WorkflowGraphNode = {
         id: nodeId,
         label: nodeName,
         kind,
         type: nodeType,
       };
+
+      if (typeLower.includes("notion")) {
+        const databaseId = extractNotionDatabaseId(n);
+        if (databaseId) base.databaseId = databaseId;
+      }
+      if (typeLower.includes("slack")) {
+        const params = n.parameters ?? {};
+        const channel = params.channel;
+        if (typeof channel === "string" && channel) base.channelId = channel;
+      }
+
+      return base;
     });
 
     // Normalize connections to WorkflowGraph edges
