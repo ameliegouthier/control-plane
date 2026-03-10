@@ -39,6 +39,7 @@ export default function OverviewClient({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
   const [showConnectModal, setShowConnectModal] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<AutomationProvider | null>(null);
 
   const enrichedBase = useMemo(
     () =>
@@ -203,15 +204,23 @@ export default function OverviewClient({
         workflows={workflows}
         selectedTool={selectedTool}
         onSelectTool={setSelectedTool}
-        onAddIntegration={() => setShowConnectModal(true)}
+        onAddIntegration={(provider) => {
+          setSelectedProvider(provider as AutomationProvider);
+          setShowConnectModal(true);
+        }}
       />
 
-      <ConnectProviderModal
-        open={showConnectModal}
-        provider="n8n"
-        onClose={() => setShowConnectModal(false)}
-        onSuccess={handleConnectSuccess}
-      />
+      {selectedProvider && (
+        <ConnectProviderModal
+          open={showConnectModal}
+          provider={selectedProvider}
+          onClose={() => {
+            setShowConnectModal(false);
+            setSelectedProvider(null);
+          }}
+          onSuccess={handleConnectSuccess}
+        />
+      )}
 
       <div className="ml-[80px] px-8 py-6">
         <div className="max-w-[1360px] mx-auto">

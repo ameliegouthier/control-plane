@@ -134,7 +134,7 @@ interface SidebarToolsProps {
   workflows: WorkflowLike[];
   selectedTool: string | null;
   onSelectTool: (tool: string | null) => void;
-  onAddIntegration?: () => void;
+  onAddIntegration?: (provider: string) => void;
 }
 
 export default function SidebarTools({
@@ -144,6 +144,7 @@ export default function SidebarTools({
   onAddIntegration,
 }: SidebarToolsProps) {
   const [hoveredTool, setHoveredTool] = useState<string | null>(null);
+  const [showProviderMenu, setShowProviderMenu] = useState(false);
 
   const providers = useMemo(
     () => Array.from(new Set((workflows ?? []).map((w) => w.provider))).filter(Boolean),
@@ -243,15 +244,44 @@ export default function SidebarTools({
           >
             <button
               type="button"
-              onClick={onAddIntegration}
+              onClick={() => setShowProviderMenu((v) => !v)}
               title="Connect integration"
               className="w-8 h-8 flex items-center justify-center rounded-lg border bg-white text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-all duration-150 hover:scale-105"
             >
               <span className="text-[18px] leading-none">+</span>
             </button>
-            {hoveredTool === "add" && (
+            {hoveredTool === "add" && !showProviderMenu && (
               <div className="absolute left-12 top-1/2 -translate-y-1/2 bg-gray-900 text-white text-[11px] px-2.5 py-1 rounded-md whitespace-nowrap z-50 pointer-events-none">
                 Connect integration
+              </div>
+            )}
+            {showProviderMenu && (
+              <div className="absolute left-12 top-1/2 -translate-y-1/2 bg-white border border-gray-200 rounded-lg shadow-lg text-[12px] text-gray-900 py-2 z-50 min-w-[160px]">
+                <div className="px-3 pb-1 text-[11px] font-medium text-gray-500 uppercase tracking-wide">
+                  Connect automation tool
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onAddIntegration("n8n");
+                    setShowProviderMenu(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-left"
+                >
+                  <N8nIcon className="w-4 h-4 text-orange-600" />
+                  <span className="text-xs text-gray-900">n8n</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onAddIntegration("make");
+                    setShowProviderMenu(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-left"
+                >
+                  <MakeIcon className="w-4 h-4 text-violet-600" />
+                  <span className="text-xs text-gray-900">Make</span>
+                </button>
               </div>
             )}
           </div>

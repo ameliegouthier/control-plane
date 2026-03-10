@@ -12,6 +12,12 @@ interface ConnectProviderModalProps {
   onSuccess: () => void;
 }
 
+// ─── Integration vs Connection API ──────────────────────────────────────────
+// Integration = automation tools (n8n, make, zapier) → POST /api/integrations/[provider]
+// Connection = external services (notion, slack, airtable) → POST /api/connections/[provider]
+
+const INTEGRATION_PROVIDERS: AutomationProvider[] = ["n8n", "make", "zapier"];
+
 // ─── Provider-specific configuration ────────────────────────────────────────
 
 const PROVIDER_CONFIG: Record<AutomationProvider, { name: string; icon: string; placeholder: string; helpText: string }> = {
@@ -111,11 +117,13 @@ export default function ConnectProviderModal({
       if (provider === "n8n") {
         payload.tool = "n8n";
         if (apiKey.trim()) payload.apiKey = apiKey.trim();
+      } else if (provider === "make") {
+        if (apiKey.trim()) payload.apiToken = apiKey.trim();
       }
 
-      // Step 1 — test reachability (skip when n8n API key is provided; we'll validate on save/sync)
-      const skipTest = provider === "n8n" && !!apiKey.trim();
-      if (!skipTest) {
+      // Step 1 — test reachability (n8n only; skip for other providers)
+      const shouldTest = provider === "n8n" && !apiKey.trim();
+      if (shouldTest) {
         setStatus("testing");
         try {
           const testRes = await fetch(`/api/connections/${provider}/test`, {
@@ -138,10 +146,13 @@ export default function ConnectProviderModal({
         }
       }
 
-      // Step 2 — save connection
+      // Step 2 — save (Integration API for n8n/make/zapier, Connection API for others)
       setStatus("saving");
+      const saveUrl = INTEGRATION_PROVIDERS.includes(provider)
+        ? `/api/integrations/${provider}`
+        : `/api/connections/${provider}`;
       try {
-        const saveRes = await fetch(`/api/connections/${provider}`, {
+        const saveRes = await fetch(saveUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -241,6 +252,23 @@ export default function ConnectProviderModal({
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="Your n8n API key (optional)"
+                disabled={busy || status === "success"}
+                autoComplete="off"
+                className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring disabled:bg-muted disabled:text-muted-foreground"
+              />
+            </>
+          )}
+
+          {provider === "make" && (
+            <>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                API token
+              </label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Your Make API token"
                 disabled={busy || status === "success"}
                 autoComplete="off"
                 className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring disabled:bg-muted disabled:text-muted-foreground"
