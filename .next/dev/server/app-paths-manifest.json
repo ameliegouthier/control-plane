@@ -1,6 +1,0 @@
-{
-  "/api/integrations/[provider]/route": "app/api/integrations/[provider]/route.js",
-  "/api/connections/n8n/route": "app/api/connections/n8n/route.js",
-  "/api/n8n/workflows/route": "app/api/n8n/workflows/route.js",
-  "/overview/page": "app/overview/page.js"
-}
