@@ -1,4 +1,4 @@
-import type { Workflow as DbWorkflow, ToolType } from "@prisma/client";
+import type { Workflow as DbWorkflow } from "@prisma/client";
 import type {
   Workflow,
   WorkflowGraph,
@@ -12,24 +12,6 @@ import { extractNotionDatabaseId } from "@/lib/providers/notion-resources";
 
 export type { Workflow, WorkflowGraph, WorkflowGraphNode, WorkflowGraphEdge, AutomationProvider };
 
-// ─── Provider Mapping ──────────────────────────────────────────────────────────
-
-/**
- * Map Prisma ToolType enum to AutomationProvider string.
- */
-function mapToolTypeToProvider(tool: ToolType | null | undefined): AutomationProvider {
-  switch (tool) {
-    case "N8N":
-      return "n8n";
-    case "MAKE":
-      return "make";
-    case "ZAPIER":
-      return "zapier";
-    default:
-      return "n8n"; // Default for backward compatibility
-  }
-}
-
 // ─── Prisma → Workflow mapper ────────────────────────────────────────────────
 
 /**
@@ -38,19 +20,30 @@ function mapToolTypeToProvider(tool: ToolType | null | undefined): AutomationPro
  * Validates every node through a type guard and falls back to empty values for missing/corrupt data.
  */
 export function toWorkflow(db: DbWorkflow): Workflow {
-  // `actions` is Prisma Json? — might be null, a primitive, an array, etc.
+  // Actions may be on db.actions (legacy) or inside db.config.actions (Integration model)
+  const rawActions =
+    (db as { actions?: unknown }).actions ?? (db.config as Record<string, unknown> | null)?.actions;
   const actions =
-    db.actions != null &&
-    typeof db.actions === "object" &&
-    !Array.isArray(db.actions)
-      ? (db.actions as Record<string, unknown>)
+    rawActions != null &&
+    typeof rawActions === "object" &&
+    !Array.isArray(rawActions)
+      ? (rawActions as Record<string, unknown>)
       : {};
 
-  // Use provider field from Workflow; Prisma Workflow has provider and connectionId (connection relation may be unloaded)
-  const rawProvider = (db as { provider?: string }).provider;
-  const provider: AutomationProvider =
-    rawProvider && ["n8n", "make", "zapier", "airtable"].includes(rawProvider)
-      ? (db as { provider: AutomationProvider }).provider
+  // Use provider from Workflow, config, or included integration; normalize (e.g. N8N -> n8n)
+  const configForProvider = db.config as Record<string, unknown> | null | undefined;
+  const rawProvider =
+    (db as { provider?: string }).provider ??
+    (configForProvider?.provider as string | undefined) ??
+    (db as { integration?: { provider?: string } }).integration?.provider;
+  const norm = (s: string | undefined) => s?.toLowerCase();
+  const valid = (s: string | undefined): s is AutomationProvider =>
+    !!s && ["n8n", "make", "zapier", "airtable"].includes(s);
+  const fromIntegration = norm((db as { integration?: { provider?: string } }).integration?.provider);
+  const provider: AutomationProvider = valid(norm(rawProvider))
+    ? (norm(rawProvider) as AutomationProvider)
+    : valid(fromIntegration)
+      ? fromIntegration
       : "n8n";
 
   // Build graph only when we have new-format graph or legacy nodes/connections
@@ -138,16 +131,25 @@ export function toWorkflow(db: DbWorkflow): Workflow {
   }
   // else: no graph and no legacy → graph stays undefined
 
-  // Use externalId if available, otherwise toolWorkflowId, else Prisma id
+  // Use externalId from config or top-level, then toolWorkflowId, else Prisma id
+  const configObj = db.config as Record<string, unknown> | null | undefined;
   const workflowId =
-    (db as { externalId?: string }).externalId ?? db.toolWorkflowId ?? db.id;
+    (configObj?.externalId as string | undefined) ??
+    (db as { externalId?: string }).externalId ??
+    (db as { toolWorkflowId?: string }).toolWorkflowId ??
+    db.id;
+
+  // Workflow uses integrationId; expose as connectionId for provider abstraction
+  const connectionId =
+    (db as { integrationId?: string }).integrationId ??
+    (db as { connectionId?: string }).connectionId;
 
   return {
     id: workflowId,
     name: db.name,
     active: db.status === "active",
     provider,
-    connectionId: db.connectionId,
+    connectionId: connectionId ?? db.id,
     graph,
     updatedAt: db.updatedAt.toISOString(),
     createdAt: db.createdAt.toISOString(),

@@ -115,7 +115,7 @@ const N8N_DEMO_WORKFLOWS: DemoWorkflowRaw[] = [
         },
         {
           id: "n5",
-          name: "Tag Invalid Lead",
+          name: "Tag Inva<lid Lead",
           type: "n8n-nodes-base.hubspot",
           parameters: {
             resource: "contact",

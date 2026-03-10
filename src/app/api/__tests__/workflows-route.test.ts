@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GET } from "../workflows/route";
 import { NextRequest } from "next/server";
-import type { Workflow as DbWorkflow, Connection, ToolType } from "@prisma/client";
+import type { Workflow as DbWorkflow, Integration } from "@prisma/client";
 
 // Mock dependencies
 vi.mock("@/lib/prisma", () => ({
@@ -41,36 +41,31 @@ describe("GET /api/workflows", () => {
   function createMockWorkflow(
     provider: string,
     externalId: string,
-    tool: ToolType,
-    connectionId: string
-  ): DbWorkflow & { connection: Connection } {
+    integrationId: string
+  ): DbWorkflow & { integration: Integration } {
     return {
       id: "wf-1",
       userId: "user-1",
-      connectionId,
-      provider: provider as any,
-      externalId,
-      toolWorkflowId: externalId,
+      integrationId,
       name: "Test Workflow",
       status: "active",
       triggerType: null,
-      triggerConfig: null,
-      actions: {},
+      config: { provider, externalId, actions: {} },
       createdAt: new Date(),
       updatedAt: new Date(),
-      lastSyncedAt: null,
-      connection: {
-        id: connectionId,
+      integration: {
+        id: integrationId,
         userId: "user-1",
-        tool,
+        provider,
+        name: provider,
         status: "ACTIVE",
         externalAccountId: null,
         config: {},
+        credentials: null,
         createdAt: new Date(),
         updatedAt: new Date(),
-        lastSyncedAt: null,
       },
-    };
+    } as DbWorkflow & { integration: Integration };
   }
 
   function createRequest(url: string): NextRequest {
@@ -79,8 +74,8 @@ describe("GET /api/workflows", () => {
 
   describe("Provider filtering (?provider=)", () => {
     it("should filter by provider=n8n", async () => {
-      const n8nWorkflow = createMockWorkflow("n8n", "n8n-1", "N8N", "conn-1");
-      const makeWorkflow = createMockWorkflow("make", "make-1", "MAKE", "conn-2");
+      const n8nWorkflow = createMockWorkflow("n8n", "n8n-1", "int-1");
+      const makeWorkflow = createMockWorkflow("make", "make-1", "int-2");
 
       (prisma.workflow.findMany as any).mockResolvedValue([n8nWorkflow, makeWorkflow]);
 
@@ -91,9 +86,9 @@ describe("GET /api/workflows", () => {
       expect(prisma.workflow.findMany).toHaveBeenCalledWith({
         where: {
           userId: "user-1",
-          provider: "n8n",
+          integration: { provider: "n8n" },
         },
-        include: { connection: true },
+        include: { integration: true },
         orderBy: { updatedAt: "desc" },
       });
 
@@ -110,100 +105,44 @@ describe("GET /api/workflows", () => {
       expect(prisma.workflow.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            provider: "make",
+            integration: { provider: "make" },
           }),
         })
       );
     });
   });
 
-  describe("Legacy tool filtering (?tool=)", () => {
-    it("should filter by tool=N8N (legacy)", async () => {
-      (prisma.workflow.findMany as any).mockResolvedValue([]);
-
-      const req = createRequest("http://localhost:3000/api/workflows?tool=N8N");
-      await GET(req);
-
-      expect(prisma.workflow.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            connection: { tool: "N8N" },
-          }),
-        })
-      );
-    });
-
-    it("should filter by tool=MAKE (legacy)", async () => {
-      (prisma.workflow.findMany as any).mockResolvedValue([]);
-
-      const req = createRequest("http://localhost:3000/api/workflows?tool=MAKE");
-      await GET(req);
-
-      expect(prisma.workflow.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            connection: { tool: "MAKE" },
-          }),
-        })
-      );
-    });
-  });
-
-  describe("Precedence: provider vs tool", () => {
-    it("should prefer provider when both params are set", async () => {
+  describe("Integration ID filtering", () => {
+    it("should filter by integrationId (or connectionId query param)", async () => {
       (prisma.workflow.findMany as any).mockResolvedValue([]);
 
       const req = createRequest(
-        "http://localhost:3000/api/workflows?provider=n8n&tool=MAKE"
-      );
-      await GET(req);
-
-      // Provider should win (preferred)
-      expect(prisma.workflow.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            provider: "n8n",
-          }),
-        })
-      );
-
-      // Should NOT include connection.tool filter
-      const callArgs = (prisma.workflow.findMany as any).mock.calls[0][0];
-      expect(callArgs.where.connection).toBeUndefined();
-    });
-  });
-
-  describe("Connection ID filtering", () => {
-    it("should filter by connectionId", async () => {
-      (prisma.workflow.findMany as any).mockResolvedValue([]);
-
-      const req = createRequest(
-        "http://localhost:3000/api/workflows?connectionId=conn-123"
+        "http://localhost:3000/api/workflows?integrationId=int-123"
       );
       await GET(req);
 
       expect(prisma.workflow.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            connectionId: "conn-123",
+            integrationId: "int-123",
           }),
         })
       );
     });
 
-    it("should combine connectionId with provider", async () => {
+    it("should combine integrationId with provider", async () => {
       (prisma.workflow.findMany as any).mockResolvedValue([]);
 
       const req = createRequest(
-        "http://localhost:3000/api/workflows?connectionId=conn-123&provider=n8n"
+        "http://localhost:3000/api/workflows?connectionId=int-123&provider=n8n"
       );
       await GET(req);
 
       expect(prisma.workflow.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            connectionId: "conn-123",
-            provider: "n8n",
+            integrationId: "int-123",
+            integration: { provider: "n8n" },
           }),
         })
       );

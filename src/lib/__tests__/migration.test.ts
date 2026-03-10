@@ -1,142 +1,127 @@
 /**
  * Migration Logic Tests
- * 
- * Validates that workflows created pre-migration are correctly populated
- * with provider and externalId from Connection.tool and toolWorkflowId.
+ *
+ * Validates that workflows work with Integration model and config-based provider/externalId.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Workflow as DbWorkflow, Connection, ToolType } from "@prisma/client";
+import { describe, it, expect } from "vitest";
+import type { Workflow as DbWorkflow, Integration } from "@prisma/client";
 import { toWorkflow } from "@/app/workflow-helpers";
 
 describe("Migration Logic", () => {
-  // Helper to create a legacy workflow (pre-migration)
   function createLegacyWorkflow(
-    toolWorkflowId: string,
-    tool: ToolType,
-    connectionId: string
-  ): DbWorkflow & { connection: Connection | null } {
+    externalIdOrToolWorkflowId: string,
+    provider: string,
+    integrationId: string
+  ): DbWorkflow & { integration?: Integration | null } {
     return {
       id: "wf-1",
       userId: "user-1",
-      connectionId,
-      toolWorkflowId,
-      // Legacy: no provider or externalId
-      provider: undefined as any,
-      externalId: undefined as any,
+      integrationId,
       name: "Test Workflow",
       status: "active",
       triggerType: null,
-      triggerConfig: null,
-      actions: { nodes: [], connections: {} },
+      config: { actions: { nodes: [], connections: {} }, externalId: externalIdOrToolWorkflowId },
       createdAt: new Date(),
       updatedAt: new Date(),
-      lastSyncedAt: null,
-      connection: {
-        id: connectionId,
+      integration: {
+        id: integrationId,
         userId: "user-1",
-        tool,
+        provider,
+        name: provider,
         status: "ACTIVE",
         externalAccountId: null,
         config: {},
+        credentials: null,
         createdAt: new Date(),
         updatedAt: new Date(),
-        lastSyncedAt: null,
       },
-    };
+    } as DbWorkflow & { integration?: Integration | null };
   }
 
-  // Helper to create a new workflow (post-migration)
   function createNewWorkflow(
     provider: string,
     externalId: string,
-    tool: ToolType,
-    connectionId: string
-  ): DbWorkflow & { connection: Connection | null } {
+    integrationId: string
+  ): DbWorkflow & { integration?: Integration | null } {
     return {
       id: "wf-2",
       userId: "user-1",
-      connectionId,
-      provider,
-      externalId,
-      toolWorkflowId: externalId, // Still present for backward compat
+      integrationId,
       name: "New Workflow",
       status: "active",
       triggerType: null,
-      triggerConfig: null,
-      actions: { graph: { nodes: [], edges: [] } },
+      config: { provider, externalId, actions: { graph: { nodes: [], edges: [] } } },
       createdAt: new Date(),
       updatedAt: new Date(),
-      lastSyncedAt: null,
-      connection: {
-        id: connectionId,
+      integration: {
+        id: integrationId,
         userId: "user-1",
-        tool,
+        provider,
+        name: provider,
         status: "ACTIVE",
         externalAccountId: null,
         config: {},
+        credentials: null,
         createdAt: new Date(),
         updatedAt: new Date(),
-        lastSyncedAt: null,
       },
-    };
+    } as DbWorkflow & { integration?: Integration | null };
   }
 
   describe("toWorkflow() backward compatibility", () => {
-    it("should derive provider from Connection.tool for legacy workflows (N8N)", () => {
-      const legacy = createLegacyWorkflow("n8n-wf-123", "N8N", "conn-1");
+    it("should derive provider from integration for legacy workflows (n8n)", () => {
+      const legacy = createLegacyWorkflow("n8n-wf-123", "n8n", "int-1");
       const result = toWorkflow(legacy);
 
       expect(result.provider).toBe("n8n");
-      expect(result.id).toBe("n8n-wf-123"); // Uses toolWorkflowId as fallback
+      expect(result.id).toBe("n8n-wf-123");
     });
 
-    it("should derive provider from Connection.tool for legacy workflows (MAKE)", () => {
-      const legacy = createLegacyWorkflow("make-wf-456", "MAKE", "conn-2");
+    it("should derive provider from integration for legacy workflows (make)", () => {
+      const legacy = createLegacyWorkflow("make-wf-456", "make", "int-2");
       const result = toWorkflow(legacy);
 
       expect(result.provider).toBe("make");
       expect(result.id).toBe("make-wf-456");
     });
 
-    it("should derive provider from Connection.tool for legacy workflows (ZAPIER)", () => {
-      const legacy = createLegacyWorkflow("zapier-wf-789", "ZAPIER", "conn-3");
+    it("should derive provider from integration for legacy workflows (zapier)", () => {
+      const legacy = createLegacyWorkflow("zapier-wf-789", "zapier", "int-3");
       const result = toWorkflow(legacy);
 
       expect(result.provider).toBe("zapier");
       expect(result.id).toBe("zapier-wf-789");
     });
 
-    it("should use provider field directly when present (new world)", () => {
-      const newWf = createNewWorkflow("n8n", "n8n-wf-999", "N8N", "conn-1");
+    it("should use config.provider when present (new world)", () => {
+      const newWf = createNewWorkflow("n8n", "n8n-wf-999", "int-1");
       const result = toWorkflow(newWf);
 
       expect(result.provider).toBe("n8n");
-      expect(result.id).toBe("n8n-wf-999"); // Uses externalId
+      expect(result.id).toBe("n8n-wf-999");
     });
 
-    it("should use externalId when present, fallback to toolWorkflowId", () => {
-      const newWf = createNewWorkflow("make", "make-external-123", "MAKE", "conn-2");
+    it("should use config.externalId when present", () => {
+      const newWf = createNewWorkflow("make", "make-external-123", "int-2");
       const result = toWorkflow(newWf);
 
-      expect(result.id).toBe("make-external-123"); // externalId preferred
+      expect(result.id).toBe("make-external-123");
     });
 
-    it("should handle missing connection gracefully", () => {
-      const legacy = createLegacyWorkflow("wf-123", "N8N", "conn-1");
-      legacy.connection = null; // Missing connection
+    it("should handle missing integration gracefully", () => {
+      const legacy = createLegacyWorkflow("wf-123", "n8n", "int-1");
+      legacy.integration = null;
       const result = toWorkflow(legacy);
 
-      // Should default to n8n when connection is missing
       expect(result.provider).toBe("n8n");
       expect(result.id).toBe("wf-123");
     });
 
     it("should handle invalid provider string gracefully", () => {
-      const invalid = createNewWorkflow("invalid-provider", "wf-123", "N8N", "conn-1");
+      const invalid = createNewWorkflow("invalid-provider", "wf-123", "int-1");
       const result = toWorkflow(invalid);
 
-      // Should fall back to connection.tool when provider is invalid
       expect(result.provider).toBe("n8n");
     });
   });

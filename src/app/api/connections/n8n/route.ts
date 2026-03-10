@@ -10,12 +10,12 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const user = await getDemoUser();
-    const connection = await prisma.connection.findUnique({
-      where: { userId_tool: { userId: user.id, tool: "N8N" } },
+    const integration = await prisma.integration.findFirst({
+      where: { userId: user.id, provider: "n8n" },
     });
 
-    const config = connection?.config as Record<string, string> | null;
-    const connected = connection?.status === "ACTIVE" && !!config?.baseUrl;
+    const config = integration?.config as Record<string, string> | null;
+    const connected = integration?.status === "ACTIVE" && !!config?.baseUrl;
 
     return NextResponse.json({
       connected,
@@ -27,7 +27,7 @@ export async function GET() {
 }
 
 // ─── POST /api/connections/n8n ──────────────────────────────────────────────
-// MVP: saves baseUrl only (no auth secrets).
+// Accepts baseUrl and optional apiKey. When apiKey is set, uses /api/v1 and stores apiKey in config.
 
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
@@ -40,7 +40,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { baseUrl } = body;
+  const { baseUrl: rawBaseUrl, apiKey } = body;
+  const baseUrl = typeof rawBaseUrl === "string" ? rawBaseUrl : undefined;
 
   if (typeof baseUrl !== "string" || !baseUrl.trim()) {
     return NextResponse.json(
@@ -57,19 +58,43 @@ export async function POST(req: NextRequest) {
   const user = await getDemoUser();
   const normalized = normalizeBaseUrl(baseUrl);
 
-  try {
-    const config = { baseUrl: normalized, apiPath: "/rest" };
+  // When API key is provided, use n8n API v1 path (/api/v1); otherwise /rest
+  const apiPath =
+    typeof apiKey === "string" && apiKey.trim()
+      ? "/api/v1"
+      : "/rest";
+  const config: Record<string, string> = {
+    baseUrl: normalized,
+    apiPath,
+  };
+  if (typeof apiKey === "string" && apiKey.trim()) {
+    config.apiKey = apiKey.trim();
+  }
 
-    const connection = await prisma.connection.upsert({
-      where: { userId_tool: { userId: user.id, tool: "N8N" } },
-      update: { config, status: "ACTIVE" },
-      create: { userId: user.id, tool: "N8N", config, status: "ACTIVE" },
+  try {
+    const existing = await prisma.integration.findFirst({
+      where: { userId: user.id, provider: "n8n" },
     });
+
+    const integration = existing
+      ? await prisma.integration.update({
+          where: { id: existing.id },
+          data: { config, status: "ACTIVE", updatedAt: new Date() },
+        })
+      : await prisma.integration.create({
+          data: {
+            userId: user.id,
+            provider: "n8n",
+            name: "n8n",
+            status: "ACTIVE",
+            config,
+          },
+        });
 
     return NextResponse.json({
       ok: true,
-      connectionId: connection.id,
-      status: connection.status,
+      connectionId: integration.id,
+      status: integration.status,
     });
   } catch (err: unknown) {
     console.error("[POST /api/connections/n8n] DB error:", err);

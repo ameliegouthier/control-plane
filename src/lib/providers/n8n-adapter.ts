@@ -7,7 +7,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
-import { fetchN8nApi, type N8nCredentials } from "../n8n-client";
+import { N8nClient, type N8nClientConfig } from "../n8n-client";
 import type {
   ProviderAdapter,
   ProviderConnection,
@@ -54,8 +54,8 @@ export class N8NAdapter implements ProviderAdapter {
   async fetchWorkflows(
     connection: ProviderConnection
   ): Promise<FetchWorkflowsResult> {
-    const credentials = this.extractCredentials(connection);
-    if (!credentials) {
+    const clientConfig = this.extractClientConfig(connection);
+    if (!clientConfig) {
       return {
         success: false,
         workflows: [],
@@ -64,18 +64,10 @@ export class N8NAdapter implements ProviderAdapter {
     }
 
     try {
-      const res = await fetchN8nApi(credentials, "/workflows");
-
-      if (!res.ok) {
-        return {
-          success: false,
-          workflows: [],
-          error: `n8n API responded with status ${res.status}`,
-        };
-      }
-
-      const payload = await res.json();
-      const workflows: N8nWorkflow[] = payload.data ?? [];
+      const client = new N8nClient(clientConfig);
+      const payload = (await client.getWorkflows()) as { data?: N8nWorkflow[] } | unknown;
+      const workflows: N8nWorkflow[] =
+        (payload && (payload as any).data) ?? [];
 
       return {
         success: true,
@@ -269,99 +261,49 @@ export class N8NAdapter implements ProviderAdapter {
           nodes: legacyNodes,
           connections: legacyConnections,
           graph: normalized.graph, // Also store new format for future use
-        } as Prisma.InputJsonValue;
+        };
 
-        // Upsert workflow in database
-        // Use new provider-agnostic unique constraint (provider, externalId)
-        const upsertData = {
-          userId: connection.userId,
-          connectionId: connection.id,
+        // Upsert workflow in database (Integration model: use integrationId, store actions in config)
+        const integrationId = connection.id;
+        const workflowConfig = {
           provider: normalized.provider,
           externalId: normalized.id,
-          toolWorkflowId: normalized.id, // Keep for backward compatibility during migration
+          actions,
+          triggerConfig,
+        } as Prisma.InputJsonValue;
+
+        const existing = await prisma.workflow.findFirst({
+          where: { integrationId, name: normalized.name },
+        });
+
+        const workflowData = {
           name: normalized.name,
           status: normalized.active ? "active" : "inactive",
           triggerType: triggerNode?.type ?? undefined,
-          triggerConfig,
-          actions,
-          lastSyncedAt: new Date(),
+          config: workflowConfig,
         };
 
-        // Check if workflow exists by new unique constraint
-        const existing = await prisma.workflow.findUnique({
-          where: {
-            provider_externalId: {
-              provider: normalized.provider,
-              externalId: normalized.id,
-            },
-          },
-        });
-
         if (existing) {
-          // Update existing workflow
           await prisma.workflow.update({
-            where: {
-              provider_externalId: {
-                provider: normalized.provider,
-                externalId: normalized.id,
-              },
-            },
-            data: {
-              name: normalized.name,
-              status: normalized.active ? "active" : "inactive",
-              triggerType: triggerNode?.type ?? undefined,
-              triggerConfig,
-              actions,
-              connectionId: connection.id, // Update connection if it changed
-              lastSyncedAt: new Date(),
-            },
+            where: { id: existing.id },
+            data: workflowData,
           });
         } else {
-          // Check if exists by legacy constraint (for migration)
-          const legacyExisting = await prisma.workflow.findUnique({
-            where: {
-              connectionId_toolWorkflowId: {
-                connectionId: connection.id,
-                toolWorkflowId: normalized.id,
-              },
+          await prisma.workflow.create({
+            data: {
+              userId: connection.userId,
+              integrationId,
+              ...workflowData,
             },
           });
-
-          if (legacyExisting) {
-            // Update legacy workflow with new fields
-            await prisma.workflow.update({
-              where: {
-                connectionId_toolWorkflowId: {
-                  connectionId: connection.id,
-                  toolWorkflowId: normalized.id,
-                },
-              },
-              data: {
-                provider: normalized.provider,
-                externalId: normalized.id,
-                name: normalized.name,
-                status: normalized.active ? "active" : "inactive",
-                triggerType: triggerNode?.type ?? undefined,
-                triggerConfig,
-                actions,
-                lastSyncedAt: new Date(),
-              },
-            });
-          } else {
-            // Create new workflow
-            await prisma.workflow.create({
-              data: upsertData,
-            });
-          }
         }
 
         synced++;
       }
 
-      // Update connection lastSyncedAt
-      await prisma.connection.update({
+      await prisma.integration.update({
         where: { id: connection.id },
-        data: { lastSyncedAt: new Date() },
+        data: { updatedAt: new Date() },
       });
 
       await this.logSync(connection.id, connection.userId, "SUCCESS", synced, null);
@@ -388,25 +330,32 @@ export class N8NAdapter implements ProviderAdapter {
 
   // ─── Private Helpers ────────────────────────────────────────────────────────
 
-  private extractCredentials(connection: ProviderConnection): N8nCredentials | null {
+  private extractClientConfig(connection: ProviderConnection): N8nClientConfig | null {
     const config = connection.config as Record<string, string>;
     if (!config.baseUrl) return null;
 
     return {
       baseUrl: config.baseUrl,
-      apiPath: config.apiPath ?? "/rest",
+      apiPath: config.apiPath,
+      apiKey: config.apiKey,
     };
   }
 
   private async logSync(
-    connectionId: string,
+    integrationId: string,
     userId: string,
     status: "SUCCESS" | "PARTIAL" | "ERROR",
     workflowsCount: number,
     errorMessage: string | null
   ) {
     await prisma.syncLog.create({
-      data: { connectionId, userId, status, workflowsCount, errorMessage },
+      data: {
+        integrationId,
+        userId,
+        status,
+        details: { workflowsCount },
+        errorMessage,
+      },
     });
   }
 }

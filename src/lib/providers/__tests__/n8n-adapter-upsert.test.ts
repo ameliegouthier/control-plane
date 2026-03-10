@@ -12,15 +12,15 @@ import { N8NAdapter } from "../n8n-adapter";
 import type { ProviderConnection } from "../types";
 import { PrismaClient } from "@prisma/client";
 
-// Mock Prisma
+// Mock Prisma (Integration model: workflow uses findFirst, integrationId, config)
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     workflow: {
-      findUnique: vi.fn(),
+      findFirst: vi.fn(),
       update: vi.fn(),
       create: vi.fn(),
     },
-    connection: {
+    integration: {
       update: vi.fn(),
     },
     syncLog: {
@@ -30,12 +30,14 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 // Mock n8n client
+const getWorkflowsMock = vi.fn();
 vi.mock("@/lib/n8n-client", () => ({
-  fetchN8nApi: vi.fn(),
+  N8nClient: vi.fn().mockImplementation(() => ({
+    getWorkflows: getWorkflowsMock,
+  })),
 }));
 
 import { prisma } from "@/lib/prisma";
-import { fetchN8nApi } from "@/lib/n8n-client";
 
 describe("N8N Adapter Upsert Logic", () => {
   let adapter: N8NAdapter;
@@ -72,105 +74,30 @@ describe("N8N Adapter Upsert Logic", () => {
     updatedAt: "2024-01-01T00:00:00Z",
   };
 
-  describe("New world: workflow exists by (provider, externalId)", () => {
-    it("should update existing workflow when found by provider+externalId", async () => {
+  describe("Upsert by integrationId + name", () => {
+    it("should update existing workflow when found by integrationId and name", async () => {
       const existingWorkflow = {
         id: "db-id-1",
-        provider: "n8n",
-        externalId: "n8n-wf-123",
-        connectionId: "conn-1",
-        name: "Old Name",
+        integrationId: "conn-1",
+        name: "Test Workflow",
         status: "inactive",
       };
 
-      (prisma.workflow.findUnique as any).mockResolvedValueOnce(existingWorkflow);
-      (fetchN8nApi as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [mockN8nWorkflow] }),
-      });
-
-      const result = await adapter.syncWorkflows(connection);
-
-      expect(result.success).toBe(true);
-      expect(result.synced).toBe(1);
-      
-      // Should have checked for new unique constraint first
-      expect(prisma.workflow.findUnique).toHaveBeenCalledWith({
-        where: {
-          provider_externalId: {
-            provider: "n8n",
-            externalId: "n8n-wf-123",
-          },
-        },
-      });
-
-      // Should update the existing workflow
-      expect(prisma.workflow.update).toHaveBeenCalledWith({
-        where: {
-          provider_externalId: {
-            provider: "n8n",
-            externalId: "n8n-wf-123",
-          },
-        },
-        data: expect.objectContaining({
-          name: "Test Workflow",
-          status: "active",
-          connectionId: "conn-1",
-        }),
-      });
-
-      // Should NOT check legacy constraint
-      expect(prisma.workflow.findUnique).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe("Migration: workflow exists by (connectionId, toolWorkflowId)", () => {
-    it("should update legacy workflow and populate provider/externalId", async () => {
-      // First check (new constraint) returns null
-      (prisma.workflow.findUnique as any)
-        .mockResolvedValueOnce(null) // No match by provider+externalId
-        .mockResolvedValueOnce({
-          // Legacy workflow found
-          id: "db-id-2",
-          connectionId: "conn-1",
-          toolWorkflowId: "n8n-wf-123",
-          provider: null, // Missing provider
-          externalId: null, // Missing externalId
-          name: "Old Name",
-          status: "inactive",
-        });
-
-      (fetchN8nApi as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [mockN8nWorkflow] }),
-      });
+      (prisma.workflow.findFirst as any).mockResolvedValueOnce(existingWorkflow);
+      getWorkflowsMock.mockResolvedValueOnce({ data: [mockN8nWorkflow] });
 
       const result = await adapter.syncWorkflows(connection);
 
       expect(result.success).toBe(true);
       expect(result.synced).toBe(1);
 
-      // Should check legacy constraint after new constraint fails
-      expect(prisma.workflow.findUnique).toHaveBeenCalledWith({
-        where: {
-          connectionId_toolWorkflowId: {
-            connectionId: "conn-1",
-            toolWorkflowId: "n8n-wf-123",
-          },
-        },
+      expect(prisma.workflow.findFirst).toHaveBeenCalledWith({
+        where: { integrationId: "conn-1", name: "Test Workflow" },
       });
 
-      // Should update legacy workflow AND populate provider/externalId
       expect(prisma.workflow.update).toHaveBeenCalledWith({
-        where: {
-          connectionId_toolWorkflowId: {
-            connectionId: "conn-1",
-            toolWorkflowId: "n8n-wf-123",
-          },
-        },
+        where: { id: "db-id-1" },
         data: expect.objectContaining({
-          provider: "n8n",
-          externalId: "n8n-wf-123",
           name: "Test Workflow",
           status: "active",
         }),
@@ -179,32 +106,26 @@ describe("N8N Adapter Upsert Logic", () => {
   });
 
   describe("Create: no existing workflow", () => {
-    it("should create new workflow with provider+externalId + legacy fields", async () => {
-      // Both checks return null (no existing workflow)
-      (prisma.workflow.findUnique as any)
-        .mockResolvedValueOnce(null) // No match by provider+externalId
-        .mockResolvedValueOnce(null); // No match by legacy constraint
+    it("should create new workflow with integrationId and config", async () => {
+      (prisma.workflow.findFirst as any).mockResolvedValueOnce(null);
 
-      (fetchN8nApi as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [mockN8nWorkflow] }),
-      });
+      getWorkflowsMock.mockResolvedValueOnce({ data: [mockN8nWorkflow] });
 
       const result = await adapter.syncWorkflows(connection);
 
       expect(result.success).toBe(true);
       expect(result.synced).toBe(1);
 
-      // Should create new workflow with all fields
       expect(prisma.workflow.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           userId: "user-1",
-          connectionId: "conn-1",
-          provider: "n8n",
-          externalId: "n8n-wf-123",
-          toolWorkflowId: "n8n-wf-123", // Legacy field still populated
+          integrationId: "conn-1",
           name: "Test Workflow",
           status: "active",
+          config: expect.objectContaining({
+            provider: "n8n",
+            externalId: "n8n-wf-123",
+          }),
         }),
       });
     });
@@ -214,41 +135,34 @@ describe("N8N Adapter Upsert Logic", () => {
     it("should not create duplicates when syncing same workflow twice", async () => {
       const existingWorkflow = {
         id: "db-id-1",
-        provider: "n8n",
-        externalId: "n8n-wf-123",
-        connectionId: "conn-1",
+        integrationId: "conn-1",
+        name: "Test Workflow",
       };
 
-      (prisma.workflow.findUnique as any).mockResolvedValue(existingWorkflow);
-      (fetchN8nApi as any).mockResolvedValue({
-        ok: true,
-        json: async () => ({ data: [mockN8nWorkflow] }),
-      });
+      (prisma.workflow.findFirst as any).mockResolvedValue(existingWorkflow);
+      getWorkflowsMock.mockResolvedValue({ data: [mockN8nWorkflow] });
 
-      // Sync twice
       await adapter.syncWorkflows(connection);
       await adapter.syncWorkflows(connection);
 
-      // Should update twice, never create
       expect(prisma.workflow.update).toHaveBeenCalledTimes(2);
       expect(prisma.workflow.create).not.toHaveBeenCalled();
     });
   });
 
   describe("Provider consistency", () => {
-    it("should ensure provider matches connection provider", async () => {
-      (prisma.workflow.findUnique as any).mockResolvedValue(null);
-      (fetchN8nApi as any).mockResolvedValue({
-        ok: true,
-        json: async () => ({ data: [mockN8nWorkflow] }),
-      });
+    it("should store provider in config matching connection", async () => {
+      (prisma.workflow.findFirst as any).mockResolvedValue(null);
+      getWorkflowsMock.mockResolvedValue({ data: [mockN8nWorkflow] });
 
       await adapter.syncWorkflows(connection);
 
       expect(prisma.workflow.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
-          provider: "n8n", // Must match connection.provider
-          connectionId: "conn-1",
+          integrationId: "conn-1",
+          config: expect.objectContaining({
+            provider: "n8n",
+          }),
         }),
       });
     });

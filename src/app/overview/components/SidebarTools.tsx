@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
+import Image from "next/image";
 
 export const N8nIcon = ({ className }: { className?: string }) => (
   <svg
@@ -73,23 +74,81 @@ export const AirtableIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-const TOOLS = [
-  { id: "n8n", label: "n8n", icon: N8nIcon, connected: true, color: "text-orange-600", bgColor: "bg-orange-50", borderColor: "border-orange-100" },
-  { id: "make", label: "Make", icon: MakeIcon, connected: false, color: "text-violet-600", bgColor: "bg-violet-50", borderColor: "border-violet-100" },
-  { id: "zapier", label: "Zapier", icon: ZapierIcon, connected: false, color: "text-amber-600", bgColor: "bg-amber-50", borderColor: "border-amber-100" },
-  { id: "airtable", label: "Airtable", icon: AirtableIcon, connected: false, color: "text-blue-600", bgColor: "bg-blue-50", borderColor: "border-blue-100" },
-] as const;
+type WorkflowLike = {
+  provider: string;
+};
+
+const PROVIDER_CONFIG: Record<
+  string,
+  {
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    color: string;
+    bgColor: string;
+    borderColor: string;
+  }
+> = {
+  n8n: {
+    label: "n8n",
+    icon: N8nIcon,
+    color: "text-orange-600",
+    bgColor: "bg-orange-50",
+    borderColor: "border-orange-100",
+  },
+  make: {
+    label: "Make",
+    icon: MakeIcon,
+    color: "text-violet-600",
+    bgColor: "bg-violet-50",
+    borderColor: "border-violet-100",
+  },
+  zapier: {
+    label: "Zapier",
+    icon: ZapierIcon,
+    color: "text-amber-600",
+    bgColor: "bg-amber-50",
+    borderColor: "border-amber-100",
+  },
+  airtable: {
+    label: "Airtable",
+    icon: AirtableIcon,
+    color: "text-blue-600",
+    bgColor: "bg-blue-50",
+    borderColor: "border-blue-100",
+  },
+};
+
+const UNKNOWN_PROVIDER_CONFIG = {
+  label: "Other",
+  icon: ({ className }: { className?: string }) => (
+    <div className={`flex items-center justify-center rounded-sm border border-current ${className ?? ""}`}>
+      <span className="text-[9px] leading-none font-medium">?</span>
+    </div>
+  ),
+  color: "text-gray-500",
+  bgColor: "bg-gray-50",
+  borderColor: "border-gray-200",
+};
 
 interface SidebarToolsProps {
+  workflows: WorkflowLike[];
   selectedTool: string | null;
   onSelectTool: (tool: string | null) => void;
+  onAddIntegration?: () => void;
 }
 
 export default function SidebarTools({
+  workflows,
   selectedTool,
   onSelectTool,
+  onAddIntegration,
 }: SidebarToolsProps) {
   const [hoveredTool, setHoveredTool] = useState<string | null>(null);
+
+  const providers = useMemo(
+    () => Array.from(new Set((workflows ?? []).map((w) => w.provider))).filter(Boolean),
+    [workflows],
+  );
 
   return (
     <aside
@@ -97,13 +156,14 @@ export default function SidebarTools({
       style={{ boxShadow: '0 1px 3px 0 rgba(0,0,0,0.04), 0 1px 2px -1px rgba(0,0,0,0.04)' }}
     >
       {/* Logo */}
-      <div className="w-8 h-8 rounded-lg bg-gray-900 flex items-center justify-center">
-        <span className="text-[10px] text-white font-medium">CP</span>
-      </div>
-
-      {/* Profile avatar */}
-      <div className="mt-5 w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center">
-        <span className="text-[10px] text-gray-600">JD</span>
+      <div className="w-8 h-8 rounded-[18px] flex items-center justify-center bg-[#050605]" aria-label="Control Plane">
+        <Image
+          src="/logo-mark.png"
+          alt="Control Plane logo"
+          width={24}
+          height={24}
+          className="w-full h-full rounded-[18px]"
+        />
       </div>
 
       {/* Divider */}
@@ -111,39 +171,91 @@ export default function SidebarTools({
 
       {/* Tool buttons */}
       <nav className="flex flex-col items-center gap-1.5" aria-label="Tool filter">
-        {TOOLS.map((tool) => {
-          const isActive = selectedTool === tool.id;
-          const IconComponent = tool.icon;
+        {/* "All" item */}
+        <div
+          className="relative"
+          onMouseEnter={() => setHoveredTool("all")}
+          onMouseLeave={() => setHoveredTool(null)}
+        >
+          <button
+            type="button"
+            onClick={() => onSelectTool(null)}
+            title="All"
+            aria-pressed={selectedTool === null}
+            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 hover:scale-105 border bg-gray-50 text-gray-600 border-gray-200 ${
+              selectedTool === null ? "ring-2 ring-offset-1 ring-gray-300" : ""
+            }`}
+          >
+            <div className="flex items-center gap-[3px]">
+              <span className="w-1 h-1 rounded-full bg-gray-500" />
+              <span className="w-1 h-1 rounded-full bg-gray-500" />
+              <span className="w-1 h-1 rounded-full bg-gray-500" />
+            </div>
+          </button>
+          {hoveredTool === "all" && (
+            <div className="absolute left-12 top-1/2 -translate-y-1/2 bg-gray-900 text-white text-[11px] px-2.5 py-1 rounded-md whitespace-nowrap z-50 pointer-events-none">
+              All tools
+            </div>
+          )}
+        </div>
+
+        {/* Dynamic provider icons */}
+        {providers.map((provider) => {
+          const config = PROVIDER_CONFIG[provider] ?? UNKNOWN_PROVIDER_CONFIG;
+          const IconComponent = config.icon;
+          const isActive = selectedTool === provider;
           return (
             <div
-              key={tool.id}
+              key={provider}
               className="relative"
-              onMouseEnter={() => setHoveredTool(tool.id)}
+              onMouseEnter={() => setHoveredTool(provider)}
               onMouseLeave={() => setHoveredTool(null)}
             >
               <button
                 type="button"
-                onClick={() => onSelectTool(isActive ? null : tool.id)}
-                title={tool.label}
+                onClick={() => onSelectTool(isActive ? null : provider)}
+                title={config.label}
                 aria-pressed={isActive}
-                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 hover:scale-105 border ${tool.bgColor} ${tool.color} ${tool.borderColor} ${
+                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 hover:scale-105 border ${config.bgColor} ${config.color} ${config.borderColor} ${
                   isActive ? "ring-2 ring-offset-1 ring-gray-300" : ""
                 }`}
               >
                 <IconComponent className="w-[15px] h-[15px]" />
               </button>
-              {tool.connected && (
-                <span className="absolute -top-0.5 -right-0.5 w-[6px] h-[6px] rounded-full bg-emerald-500 border border-white" />
-              )}
+              {/* Treat presence in the list as "connected" for indicator purposes */}
+              <span className="absolute -top-0.5 -right-0.5 w-[6px] h-[6px] rounded-full bg-emerald-500 border border-white" />
               {/* Tooltip */}
-              {hoveredTool === tool.id && (
+              {hoveredTool === provider && (
                 <div className="absolute left-12 top-1/2 -translate-y-1/2 bg-gray-900 text-white text-[11px] px-2.5 py-1 rounded-md whitespace-nowrap z-50 pointer-events-none">
-                  {tool.label}
+                  {config.label}
                 </div>
               )}
             </div>
           );
         })}
+
+        {/* "+" button to add integration */}
+        {onAddIntegration && (
+          <div
+            className="relative"
+            onMouseEnter={() => setHoveredTool("add")}
+            onMouseLeave={() => setHoveredTool(null)}
+          >
+            <button
+              type="button"
+              onClick={onAddIntegration}
+              title="Connect integration"
+              className="w-8 h-8 flex items-center justify-center rounded-lg border bg-white text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-all duration-150 hover:scale-105"
+            >
+              <span className="text-[18px] leading-none">+</span>
+            </button>
+            {hoveredTool === "add" && (
+              <div className="absolute left-12 top-1/2 -translate-y-1/2 bg-gray-900 text-white text-[11px] px-2.5 py-1 rounded-md whitespace-nowrap z-50 pointer-events-none">
+                Connect integration
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* Spacer */}
@@ -163,18 +275,10 @@ export default function SidebarTools({
           </svg>
         </button>
 
-        {/* Help */}
-        <button
-          type="button"
-          title="Help"
-          className="w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 flex items-center justify-center transition-colors"
-        >
-          <svg className="w-[15px] h-[15px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-            <path d="M12 17h.01" />
-          </svg>
-        </button>
+        {/* Profile avatar (moved from top) */}
+        <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center">
+          <span className="text-[10px] text-gray-600">JD</span>
+        </div>
       </div>
     </aside>
   );

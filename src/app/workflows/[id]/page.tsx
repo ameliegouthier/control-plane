@@ -621,7 +621,7 @@ export default function WorkflowDetailPage({ params, searchParams }: PageProps) 
   if (!workflow || !intent) {
     return (
       <div className="bg-[#fafafa] min-h-screen">
-        <SidebarTools selectedTool={selectedTool} onSelectTool={setSelectedTool} />
+        <SidebarTools workflows={workflow ? [workflow] : []} selectedTool={selectedTool} onSelectTool={setSelectedTool} />
         <div className="ml-[80px] px-8 py-6">
           <div className="max-w-[1360px] mx-auto">
             <div className="flex flex-col items-center justify-center py-24">
@@ -661,7 +661,7 @@ export default function WorkflowDetailPage({ params, searchParams }: PageProps) 
 
   return (
     <div className="bg-[#fafafa] min-h-screen">
-      <SidebarTools selectedTool={selectedTool} onSelectTool={setSelectedTool} />
+      <SidebarTools workflows={[workflow]} selectedTool={selectedTool} onSelectTool={setSelectedTool} />
       <div className="ml-[80px] px-8 py-6">
         <div className="max-w-[1360px] mx-auto">
           <Link

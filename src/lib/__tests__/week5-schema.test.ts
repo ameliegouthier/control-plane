@@ -95,25 +95,25 @@ describe("Week 5 Schema Invariants", () => {
     });
   });
 
-  describe("Workflow belongs to Connection", () => {
-    it("should require connectionId", async () => {
+  describe("Workflow belongs to Integration", () => {
+    it("should require integrationId", async () => {
       const schema = `
-        connectionId  String
-        connection    Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+        integrationId  String
+        integration    Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
       `;
-      
-      expect(schema).toContain("connectionId");
-      expect(schema).toContain("Connection @relation");
+
+      expect(schema).toContain("integrationId");
+      expect(schema).toContain("Integration @relation");
     });
 
-    it("should reject workflows without connectionId", async () => {
+    it("should reject workflows without integrationId", async () => {
       const invalidWorkflow = {
         provider: "n8n",
         externalId: "wf-123",
-        connectionId: null,
+        integrationId: null,
       };
 
-      expect(invalidWorkflow.connectionId).toBeNull();
+      expect(invalidWorkflow.integrationId).toBeNull();
       // In real DB, foreign key constraint would prevent this
     });
   });

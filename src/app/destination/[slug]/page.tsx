@@ -153,7 +153,7 @@ export default function DestinationPage({ params, searchParams }: PageProps) {
   if (!meta && workflows.length === 0) {
     return (
       <div className="bg-[#fafafa] min-h-screen">
-        <SidebarTools selectedTool={selectedTool} onSelectTool={setSelectedTool} />
+        <SidebarTools workflows={workflows} selectedTool={selectedTool} onSelectTool={setSelectedTool} />
         <div className="ml-[80px] px-8 py-6">
           <div className="max-w-[1360px] mx-auto">
             <button
@@ -182,7 +182,7 @@ export default function DestinationPage({ params, searchParams }: PageProps) {
 
   return (
     <div className="bg-[#fafafa] min-h-screen">
-      <SidebarTools selectedTool={selectedTool} onSelectTool={setSelectedTool} />
+      <SidebarTools workflows={workflows} selectedTool={selectedTool} onSelectTool={setSelectedTool} />
 
       <div className="ml-[80px] px-8 py-6">
         <div className="max-w-[1360px] mx-auto">

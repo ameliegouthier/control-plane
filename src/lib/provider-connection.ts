@@ -1,4 +1,3 @@
-import type { ToolType } from "@prisma/client";
 import { prisma } from "./prisma";
 import { getDemoUser } from "./demo-user";
 import type { AutomationProvider } from "./providers/types";
@@ -7,6 +6,7 @@ import type { N8nCredentials } from "./n8n-client";
 export type { N8nCredentials };
 
 export interface ProviderConnectionInfo {
+  /** Id of the Integration record (exposed as connectionId for provider abstraction). */
   connectionId: string;
   userId: string;
   provider: AutomationProvider;
@@ -14,46 +14,28 @@ export interface ProviderConnectionInfo {
 }
 
 /**
- * Map AutomationProvider to Prisma ToolType enum.
- * Airtable is not in the Connection model; callers should check for null when provider is airtable.
- */
-function mapProviderToToolType(provider: AutomationProvider): ToolType | null {
-  switch (provider) {
-    case "n8n":
-      return "N8N";
-    case "make":
-      return "MAKE";
-    case "zapier":
-      return "ZAPIER";
-    case "airtable":
-      return null;
-  }
-}
-
-/**
- * Load the active connection for a specific provider from DB for the current user.
- * Generic version that works for any provider. Returns null for Airtable (not in Connection model).
+ * Load the active integration for a specific provider from DB for the current user.
+ * Returns null for Airtable (not in Integration model).
  */
 export async function getProviderConnection(
   provider: AutomationProvider
 ): Promise<ProviderConnectionInfo | null> {
   const user = await getDemoUser();
-  const tool = mapProviderToToolType(provider);
-  if (tool === null) return null;
+  if (provider === "airtable") return null;
 
-  const connection = await prisma.connection.findUnique({
-    where: { userId_tool: { userId: user.id, tool } },
+  const integration = await prisma.integration.findFirst({
+    where: { userId: user.id, provider, status: "ACTIVE" },
   });
 
-  if (!connection || connection.status !== "ACTIVE" || !connection.config) {
+  if (!integration || !integration.config) {
     return null;
   }
 
-  const config = connection.config as Record<string, unknown>;
+  const config = integration.config as Record<string, unknown>;
   if (!config.baseUrl) return null;
 
   return {
-    connectionId: connection.id,
+    connectionId: integration.id,
     userId: user.id,
     provider,
     config,
@@ -89,7 +71,7 @@ export async function getN8nConnection(): Promise<N8nConnectionInfo | null> {
     userId: conn.userId,
     credentials: {
       baseUrl: conn.config.baseUrl as string,
-      apiPath: (conn.config.apiPath as string) ?? "/rest",
+      apiPath: (conn.config.apiPath as string) ?? "/api/v1",
     },
   };
 }

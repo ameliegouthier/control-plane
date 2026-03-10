@@ -4,120 +4,110 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")      // Connection pooling URL (PgBouncer) for runtime
-  directUrl = env("DIRECT_URL")       // Direct connection (port 5432) for migrations
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-/**
- * Enums
- */
-enum ToolType {
-  N8N
-  ZAPIER
-  MAKE
-}
-
-enum ConnectionStatus {
-  ACTIVE
-  DISABLED
-  ERROR
-}
-
-enum SyncStatus {
-  SUCCESS
-  PARTIAL
-  ERROR
-}
-
-/**
- * Models
- */
 model User {
-  id          String       @id @default(cuid())
-  email       String       @unique
-  name        String?
-  createdAt   DateTime     @default(now())
-
-  connections Connection[]
-  workflows   Workflow[]
-  syncLogs    SyncLog[]
+  id                String             @id @default(cuid())
+  email             String             @unique
+  name              String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  integrations      Integration[]
+  workflows         Workflow[]
+  externalResources ExternalResource[]
+  syncLogs          SyncLog[]
 }
 
-model Connection {
-  id            String           @id @default(cuid())
-  userId        String
-  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  tool          ToolType
-  status        ConnectionStatus @default(ACTIVE)
-
-  // Identifiant côté outil (si dispo), utile plus tard
+model Integration {
+  id                String      @id @default(cuid())
+  userId            String
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String
+  name              String
+  status            String?
   externalAccountId String?
+  config            Json?
+  credentials       Json?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  workflows         Workflow[]
+  syncLogs          SyncLog[]
 
-  // Stockage safe: on met des "pointers", pas des secrets en clair.
-  // (Jour 2 tu pourras stocker un encryptedAccessToken, ou un vault ref)
-  config        Json?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  lastSyncedAt  DateTime?
-
-  workflows     Workflow[]
-  syncLogs      SyncLog[]
-
-  @@unique([userId, tool])
   @@index([userId])
-  @@index([tool])
+  @@index([provider])
   @@index([status])
 }
 
 model Workflow {
-  id            String   @id @default(cuid())
-
+  id            String         @id @default(cuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  connectionId  String
-  connection    Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-
-  // Provider-agnostic fields
-  provider      String   // Provider type: "n8n", "make", "zapier", etc.
-  externalId    String   // Workflow ID from the external provider
-  
-  // Legacy field (kept for backward compatibility during migration)
-  toolWorkflowId String?
-  
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  integrationId String
+  integration   Integration    @relation(fields: [integrationId], references: [id], onDelete: Cascade)
   name          String
-  status        String
+  status        String?
   triggerType   String?
-  triggerConfig Json?
-  actions       Json?
+  config        Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  workflowNodes WorkflowNode[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  lastSyncedAt  DateTime?
-
-  @@unique([provider, externalId])
-  @@unique([connectionId, toolWorkflowId])
   @@index([userId])
-  @@index([connectionId])
+  @@index([integrationId])
+  @@index([status])
+}
+
+model WorkflowNode {
+  id                 String            @id @default(cuid())
+  workflowId         String
+  workflow           Workflow          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  type               String
+  name               String?
+  position           Int?
+  config             Json?
+  externalResourceId String?
+  externalResource   ExternalResource? @relation(fields: [externalResourceId], references: [id], onDelete: SetNull)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([workflowId])
+  @@index([externalResourceId])
+  @@index([type])
+}
+
+model ExternalResource {
+  id            String         @id @default(cuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type          String
+  provider      String?
+  externalId    String?
+  name          String
+  data          Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  workflowNodes WorkflowNode[]
+
+  @@index([userId])
+  @@index([type])
   @@index([provider])
 }
 
 model SyncLog {
-  id             String   @id @default(cuid())
-
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  connectionId   String
-  connection     Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-
-  status         SyncStatus
-  workflowsCount Int?
-  errorMessage   String?
-  syncedAt       DateTime @default(now())
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  integrationId String
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  status        String
+  details       Json?
+  errorMessage  String?
+  syncedAt      DateTime    @default(now())
 
   @@index([userId])
-  @@index([connectionId])
+  @@index([integrationId])
+  @@index([status])
   @@index([syncedAt])
 }

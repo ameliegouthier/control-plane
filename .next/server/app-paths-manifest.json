@@ -1,0 +1,13 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/_global-error/page": "app/_global-error/page.js",
+  "/api/connections/n8n/test/route": "app/api/connections/n8n/test/route.js",
+  "/api/connections/n8n/route": "app/api/connections/n8n/route.js",
+  "/api/demo-mode/route": "app/api/demo-mode/route.js",
+  "/api/workflows/route": "app/api/workflows/route.js",
+  "/api/n8n/workflows/route": "app/api/n8n/workflows/route.js",
+  "/destination/[slug]/page": "app/destination/[slug]/page.js",
+  "/workflows/[id]/page": "app/workflows/[id]/page.js",
+  "/overview/page": "app/overview/page.js"
+}

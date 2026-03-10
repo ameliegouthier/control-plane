@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   type Workflow,
@@ -17,11 +17,6 @@ import {
 } from "../lib/intent";
 import ConnectProviderModal from "./connect-provider-modal";
 import { getAllWorkflows } from "@/lib/repositories/workflowsRepository";
-import {
-  isDemoMode,
-  enableDemoMode,
-  disableDemoMode,
-} from "../lib/demo/demoMode";
 
 // ─── Tool Sidebar ────────────────────────────────────────────────────────────
 
@@ -37,14 +32,14 @@ function ToolSidebar({
   onConnectN8n,
   n8nConnected,
   isDemo,
-  onDisableDemo,
+  onSetDemoMode,
 }: {
   selected: string;
   onSelect: (id: string) => void;
   onConnectN8n: () => void;
   n8nConnected: boolean;
   isDemo: boolean;
-  onDisableDemo: () => void;
+  onSetDemoMode: (enabled: boolean) => void;
 }) {
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-surface-sidebar">
@@ -117,27 +112,36 @@ function ToolSidebar({
         })}
       </nav>
 
-      {/* Demo mode badge */}
-      {isDemo && (
-        <div className="mx-3 mt-4 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2">
-          <div className="flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-warning" />
-            <span className="text-[11px] font-semibold text-warning">
-              Demo mode
-            </span>
-          </div>
-          <p className="mt-0.5 text-[10px] leading-snug text-warning/80">
-            Using sample data.
-          </p>
+      {/* Data source toggle: Demo mode | Real data */}
+      <div className="mx-3 mt-4">
+        <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          Data source
+        </span>
+        <div className="flex rounded-lg border border-border bg-muted/30 p-0.5">
           <button
             type="button"
-            onClick={onDisableDemo}
-            className="mt-1.5 text-[10px] font-medium text-warning underline decoration-warning/50 underline-offset-2 transition hover:text-warning"
+            onClick={() => onSetDemoMode(true)}
+            className={`flex-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition ${
+              isDemo
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
           >
-            Disable demo mode
+            Demo mode
+          </button>
+          <button
+            type="button"
+            onClick={() => onSetDemoMode(false)}
+            className={`flex-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition ${
+              !isDemo
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Real data
           </button>
         </div>
-      )}
+      </div>
 
       <div className="mt-auto border-t border-border p-4">
         <p className="text-[11px] text-muted-foreground">MVP v0.1</p>
@@ -752,46 +756,53 @@ export default function Dashboard({
     null
   );
 
-  // ─── Connect n8n modal ───────────────────────────────────────
+  // ─── Connect provider modal (n8n or make) ────────────────────
   const [connectModalOpen, setConnectModalOpen] = useState(false);
+  const [connectModalProvider, setConnectModalProvider] = useState<
+    "n8n" | "make"
+  >("n8n");
   const [n8nConnected, setN8nConnected] = useState(initialN8nConnected);
 
-  // ─── Demo mode (server env flag OR localStorage) ────────────
+  // ─── Demo mode (from server: cookie or env) ──────────────────
   const [demoActive, setDemoActive] = useState(initialDemoMode);
 
-  // Hydrate demo state from localStorage (state-during-render pattern)
-  const [localChecked, setLocalChecked] = useState(false);
-  if (!localChecked && typeof window !== "undefined") {
-    setLocalChecked(true);
-    if (!initialDemoMode && isDemoMode()) {
-      setDemoActive(true);
-    }
-  }
+  useEffect(() => {
+    setDemoActive(initialDemoMode);
+  }, [initialDemoMode]);
+
+  const handleSetDemoMode = useCallback(
+    async (enabled: boolean) => {
+      try {
+        await fetch("/api/demo-mode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        });
+        setSelectedWorkflow(null);
+        router.refresh();
+      } catch {
+        // Non-blocking; user can retry
+      }
+    },
+    [router]
+  );
 
   const handleEnableDemo = useCallback(() => {
-    enableDemoMode();
-    setDemoActive(true);
-    setSelectedWorkflow(null);
-  }, []);
+    handleSetDemoMode(true);
+  }, [handleSetDemoMode]);
 
   const handleDisableDemo = useCallback(() => {
-    disableDemoMode();
-    setDemoActive(false);
-    setSelectedWorkflow(null);
-    router.refresh();
-  }, [router]);
+    handleSetDemoMode(false);
+  }, [handleSetDemoMode]);
 
   const handleConnectSuccess = useCallback(() => {
     setN8nConnected(true);
-    // If user connects for real, exit demo mode
-    disableDemoMode();
-    setDemoActive(false);
-    router.refresh();
-  }, [router]);
+    handleSetDemoMode(false);
+  }, [handleSetDemoMode]);
 
-  // Resolve active workflows: demo data takes priority when demo mode is on
+  // Resolve active workflows: demo data only when demo mode is on; otherwise use DB workflows
   const activeWorkflows = demoActive ? getAllWorkflows() : workflows;
-  const isConnectedOrDemo = n8nConnected || demoActive;
+  const isConnectedOrDemo = activeWorkflows.length > 0 || demoActive;
 
   // ─── Intent state ───────────────────────────────────────────
   const [intentOverrides, setIntentOverrides] = useState<
@@ -840,19 +851,22 @@ export default function Dashboard({
       <ToolSidebar
         selected={activeTool}
         onSelect={setActiveTool}
-        onConnectN8n={() => setConnectModalOpen(true)}
+        onConnectN8n={() => {
+          setConnectModalProvider("n8n");
+          setConnectModalOpen(true);
+        }}
         n8nConnected={n8nConnected}
         isDemo={demoActive}
-        onDisableDemo={handleDisableDemo}
+        onSetDemoMode={handleSetDemoMode}
       />
       <ConnectProviderModal
         open={connectModalOpen}
-        provider="n8n"
+        provider={connectModalProvider}
         onClose={() => setConnectModalOpen(false)}
         onSuccess={handleConnectSuccess}
       />
 
-      {/* Empty state: not connected and not in demo mode */}
+      {/* Empty state: no workflows and not in demo mode */}
       {!isConnectedOrDemo ? (
         <div className="flex flex-1 items-center justify-center">
           <div className="max-w-sm text-center">
@@ -860,30 +874,43 @@ export default function Dashboard({
               ⚡
             </div>
             <h2 className="text-lg font-semibold text-foreground">
-              Connect n8n to get started
+              Connect a provider to get started
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Click the{" "}
-              <span className="font-medium text-primary">+</span> next to
-              n8n in the sidebar to connect your instance.
+              Connect n8n or Make to sync your workflows.
             </p>
-            <button
-              type="button"
-              onClick={() => setConnectModalOpen(true)}
-              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
-            >
-              Connect n8n
-            </button>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setConnectModalProvider("n8n");
+                  setConnectModalOpen(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
+              >
+                Connect n8n
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConnectModalProvider("make");
+                  setConnectModalOpen(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted"
+              >
+                Connect Make
+              </button>
+            </div>
 
             <div className="mt-6 border-t border-border pt-5">
               <p className="text-xs text-muted-foreground">
-                No n8n connection? Continue with sample data.
+                No connection? Continue with sample data.
               </p>
               <DemoDataButton onClick={handleEnableDemo} />
             </div>
           </div>
         </div>
-      ) : /* Error state: connected but API failed — also offer demo fallback */
+      ) : /* Error state: workflows loaded but API error — also offer demo fallback */
       error && !demoActive ? (
         <div className="flex flex-1 items-center justify-center">
           <div className="max-w-sm text-center">

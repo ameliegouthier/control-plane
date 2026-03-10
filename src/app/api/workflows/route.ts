@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // ─── GET /api/workflows ─────────────────────────────────────────────────────
 // Reads workflows from DB (already synced).
-// Optional query params: ?tool=N8N&connectionId=xxx
+// Optional query params: ?provider=n8n&integrationId=xxx
 // Returns the same shape the frontend Workflow type expects.
 
 export async function GET(req: NextRequest) {
@@ -16,26 +16,20 @@ export async function GET(req: NextRequest) {
     const user = await getDemoUser();
 
     const params = req.nextUrl.searchParams;
-    const tool = params.get("tool"); // e.g. "N8N" (legacy, filter by connection.tool)
-    const provider = params.get("provider"); // e.g. "n8n" (new, filter by provider field)
-    const connectionId = params.get("connectionId");
+    const provider = params.get("provider"); // e.g. "n8n"
+    const integrationId = params.get("integrationId") ?? params.get("connectionId");
 
-    // Build where clause
     const where: Record<string, unknown> = { userId: user.id };
-    if (connectionId) {
-      where.connectionId = connectionId;
+    if (integrationId) {
+      where.integrationId = integrationId;
     }
     if (provider) {
-      // Filter by provider field directly (preferred)
-      where.provider = provider;
-    } else if (tool) {
-      // Legacy: filter by connection.tool
-      where.connection = { tool };
+      where.integration = { provider };
     }
 
     const dbWorkflows = await prisma.workflow.findMany({
       where,
-      include: { connection: true }, // Include connection for backward compatibility
+      include: { integration: true },
       orderBy: { updatedAt: "desc" },
     });
 

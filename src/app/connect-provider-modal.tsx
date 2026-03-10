@@ -74,6 +74,7 @@ export default function ConnectProviderModal({
 }: ConnectProviderModalProps) {
   const config = PROVIDER_CONFIG[provider];
   const [baseUrl, setBaseUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [detail, setDetail] = useState("");
@@ -85,6 +86,7 @@ export default function ConnectProviderModal({
     setPrevOpen(open);
     if (open) {
       setBaseUrl("");
+      setApiKey("");
       setStatus("idle");
       setErrorMsg("");
       setDetail("");
@@ -105,31 +107,38 @@ export default function ConnectProviderModal({
       setErrorMsg("");
       setDetail("");
 
-      const payload = { baseUrl };
-
-      // Step 1 — test reachability
-      setStatus("testing");
-      try {
-        const testRes = await fetch(`/api/connections/${provider}/test`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const testData = await testRes.json();
-
-        if (!testData.ok) {
-          setStatus("error");
-          setErrorMsg(mapError(testData.code, testData.message));
-          if (testData.message) setDetail(testData.message);
-          return;
-        }
-      } catch {
-        setStatus("error");
-        setErrorMsg("Erreur réseau — vérifie ta connexion.");
-        return;
+      const payload: Record<string, string> = { baseUrl: baseUrl.trim() };
+      if (provider === "n8n") {
+        payload.tool = "n8n";
+        if (apiKey.trim()) payload.apiKey = apiKey.trim();
       }
 
-      // Step 2 — save
+      // Step 1 — test reachability (skip when n8n API key is provided; we'll validate on save/sync)
+      const skipTest = provider === "n8n" && !!apiKey.trim();
+      if (!skipTest) {
+        setStatus("testing");
+        try {
+          const testRes = await fetch(`/api/connections/${provider}/test`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ baseUrl: baseUrl.trim() }),
+          });
+          const testData = await testRes.json();
+
+          if (!testData.ok) {
+            setStatus("error");
+            setErrorMsg(mapError(testData.code, testData.message));
+            if (testData.message) setDetail(testData.message);
+            return;
+          }
+        } catch {
+          setStatus("error");
+          setErrorMsg("Erreur réseau — vérifie ta connexion.");
+          return;
+        }
+      }
+
+      // Step 2 — save connection
       setStatus("saving");
       try {
         const saveRes = await fetch(`/api/connections/${provider}`, {
@@ -150,13 +159,22 @@ export default function ConnectProviderModal({
         return;
       }
 
+      // Step 3 — trigger workflow sync (n8n) then close
+      if (provider === "n8n") {
+        try {
+          await fetch("/api/n8n/workflows", { method: "GET" });
+        } catch {
+          // Sync failure is non-blocking; page refresh will retry
+        }
+      }
+
       setStatus("success");
       setTimeout(() => {
         onSuccess();
         onClose();
       }, 1200);
     },
-    [baseUrl, provider, onSuccess, onClose],
+    [baseUrl, apiKey, provider, onSuccess, onClose],
   );
 
   if (!open) return null;
@@ -213,6 +231,23 @@ export default function ConnectProviderModal({
             className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring disabled:bg-muted disabled:text-muted-foreground"
           />
 
+          {provider === "n8n" && (
+            <>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                API key
+              </label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Your n8n API key (optional)"
+                disabled={busy || status === "success"}
+                autoComplete="off"
+                className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring disabled:bg-muted disabled:text-muted-foreground"
+              />
+            </>
+          )}
+
           {/* Help text */}
           <div className="mb-4 rounded-lg border border-border bg-muted px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
             <span className="font-medium text-foreground">Aide :</span>{" "}
@@ -261,7 +296,9 @@ export default function ConnectProviderModal({
                 ? "Test…"
                 : status === "saving"
                   ? "Sauvegarde…"
-                  : "Tester la connexion"}
+                  : provider === "n8n"
+                    ? "Connect n8n"
+                    : "Tester la connexion"}
             </button>
           </div>
         </form>

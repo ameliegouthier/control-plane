@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GET } from "../workflows/route";
 import { NextRequest } from "next/server";
-import type { Workflow as DbWorkflow, Connection, ToolType } from "@prisma/client";
+import type { Workflow as DbWorkflow, Integration } from "@prisma/client";
 
 // Mock dependencies
 vi.mock("@/lib/prisma", () => ({
@@ -28,11 +28,11 @@ vi.mock("@/lib/demo-user", () => ({
 
 vi.mock("@/app/workflow-helpers", () => ({
   toWorkflow: vi.fn((wf: DbWorkflow) => ({
-    id: wf.externalId || wf.toolWorkflowId,
+    id: (wf.config as Record<string, unknown>)?.externalId ?? wf.id,
     name: wf.name,
-    provider: wf.provider || "n8n",
+    provider: (wf.config as Record<string, unknown>)?.provider ?? "n8n",
     active: wf.status === "active",
-    connectionId: wf.connectionId,
+    connectionId: wf.integrationId,
   })),
 }));
 
@@ -46,36 +46,31 @@ describe("Week 5 API Invariants", () => {
   function createMockWorkflow(
     provider: string,
     externalId: string,
-    tool: ToolType,
-    connectionId: string
-  ): DbWorkflow & { connection: Connection } {
+    integrationId: string
+  ): DbWorkflow & { integration: Integration } {
     return {
       id: "wf-1",
       userId: "user-1",
-      connectionId,
-      provider: provider as any,
-      externalId,
-      toolWorkflowId: externalId,
+      integrationId,
       name: "Test Workflow",
       status: "active",
       triggerType: null,
-      triggerConfig: null,
-      actions: {},
+      config: { provider, externalId, actions: {} },
       createdAt: new Date(),
       updatedAt: new Date(),
-      lastSyncedAt: null,
-      connection: {
-        id: connectionId,
+      integration: {
+        id: integrationId,
         userId: "user-1",
-        tool,
+        provider,
+        name: provider,
         status: "ACTIVE",
         externalAccountId: null,
         config: {},
+        credentials: null,
         createdAt: new Date(),
         updatedAt: new Date(),
-        lastSyncedAt: null,
       },
-    };
+    } as DbWorkflow & { integration: Integration };
   }
 
   function createRequest(url: string): NextRequest {
@@ -92,7 +87,7 @@ describe("Week 5 API Invariants", () => {
       expect(prisma.workflow.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            provider: "n8n",
+            integration: { provider: "n8n" },
           }),
         })
       );
@@ -107,66 +102,16 @@ describe("Week 5 API Invariants", () => {
       expect(prisma.workflow.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            provider: "make",
+            integration: { provider: "make" },
           }),
         })
       );
-    });
-  });
-
-  describe("Legacy tool parameter support", () => {
-    it("should filter by tool=N8N (legacy)", async () => {
-      (prisma.workflow.findMany as any).mockResolvedValue([]);
-
-      const req = createRequest("http://localhost:3000/api/workflows?tool=N8N");
-      await GET(req);
-
-      expect(prisma.workflow.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            connection: { tool: "N8N" },
-          }),
-        })
-      );
-    });
-
-    it("should filter by tool=MAKE (legacy)", async () => {
-      (prisma.workflow.findMany as any).mockResolvedValue([]);
-
-      const req = createRequest("http://localhost:3000/api/workflows?tool=MAKE");
-      await GET(req);
-
-      expect(prisma.workflow.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            connection: { tool: "MAKE" },
-          }),
-        })
-      );
-    });
-  });
-
-  describe("Parameter precedence", () => {
-    it("should prefer provider when both provider and tool are provided", async () => {
-      (prisma.workflow.findMany as any).mockResolvedValue([]);
-
-      const req = createRequest(
-        "http://localhost:3000/api/workflows?provider=n8n&tool=MAKE"
-      );
-      await GET(req);
-
-      const callArgs = (prisma.workflow.findMany as any).mock.calls[0][0];
-      
-      // Provider should win
-      expect(callArgs.where.provider).toBe("n8n");
-      // Connection.tool should NOT be set
-      expect(callArgs.where.connection).toBeUndefined();
     });
   });
 
   describe("API returns normalized Workflow objects", () => {
     it("should return workflows with provider field", async () => {
-      const n8nWorkflow = createMockWorkflow("n8n", "n8n-1", "N8N", "conn-1");
+      const n8nWorkflow = createMockWorkflow("n8n", "n8n-1", "int-1");
       (prisma.workflow.findMany as any).mockResolvedValue([n8nWorkflow]);
 
       const req = createRequest("http://localhost:3000/api/workflows?provider=n8n");
@@ -181,7 +126,7 @@ describe("Week 5 API Invariants", () => {
     });
 
     it("should not expose provider-specific internals", async () => {
-      const workflow = createMockWorkflow("n8n", "n8n-1", "N8N", "conn-1");
+      const workflow = createMockWorkflow("n8n", "n8n-1", "int-1");
       (prisma.workflow.findMany as any).mockResolvedValue([workflow]);
 
       const req = createRequest("http://localhost:3000/api/workflows");

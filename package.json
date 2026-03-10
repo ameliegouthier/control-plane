@@ -17,6 +17,7 @@
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
     "db:status": "prisma migrate status",
+    "db:test-connection": "tsx scripts/db-connection-test.ts",
     "week5:verify": "tsx scripts/week5-verify.ts"
   },
   "dependencies": {

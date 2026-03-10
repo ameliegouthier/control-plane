@@ -15,7 +15,19 @@
 /** Decrypted credentials used at runtime to call the n8n API. */
 export interface N8nCredentials {
   baseUrl: string;
-  apiPath: string; // "/rest"
+  apiPath: string; // e.g. "/rest" or "/api/v1"
+  /** When set, requests use X-N8N-API-KEY header (n8n API key auth). */
+  apiKey?: string;
+}
+
+/**
+ * Configuration used by the N8nClient.
+ * apiPath is optional here so callers can rely on the default.
+ */
+export interface N8nClientConfig {
+  baseUrl: string;
+  apiPath?: string;
+  apiKey?: string;
 }
 
 /** Structured error codes returned by test / connect endpoints. */
@@ -92,6 +104,82 @@ function commonHeaders(): Record<string, string> {
     "ngrok-skip-browser-warning": "true",
     Accept: "application/json",
   };
+}
+
+// ─── N8n HTTP Client ──────────────────────────────────────────────────────────
+
+/**
+ * Lightweight HTTP client for n8n.
+ *
+ * Responsible only for:
+ * - Building URLs from baseUrl + apiPath
+ * - Adding common headers and API key header
+ * - Handling HTTP errors with clear messages
+ *
+ * Adapters should use this client instead of calling fetch directly.
+ */
+export class N8nClient {
+  private readonly baseUrl: string;
+  private readonly apiPath: string;
+  private readonly apiKey?: string;
+
+  constructor(config: N8nClientConfig) {
+    this.baseUrl = normalizeBaseUrl(config.baseUrl);
+    // Default API path when not provided in config
+    this.apiPath = config.apiPath ?? "/api/v1";
+    this.apiKey = config.apiKey;
+  }
+
+  buildUrl(path: string): string {
+    return new URL(`${this.apiPath}${path}`, this.baseUrl).toString();
+  }
+
+  /**
+   * Low-level request helper.
+   * Throws on non-2xx responses with a clear error message.
+   */
+  async request(path: string): Promise<unknown> {
+    const url = this.buildUrl(path);
+
+    const headers: Record<string, string> = {
+      ...commonHeaders(),
+    };
+
+    if (this.apiKey) {
+      headers["X-N8N-API-KEY"] = this.apiKey;
+    }
+
+    const res = await fetch(url, {
+      headers,
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      let text = "";
+      try {
+        text = await res.text();
+      } catch {
+        // ignore body read errors
+      }
+
+      const baseMessage = `n8n API responded with ${res.status}`;
+      const message = text ? `${baseMessage}: ${text}` : baseMessage;
+      throw new Error(message);
+    }
+
+    const contentType = res.headers.get("content-type") ?? "";
+    if (!contentType.includes("json")) {
+      throw new Error(
+        `n8n API responded with ${res.status} but content type was not JSON (${contentType || "unknown"})`
+      );
+    }
+
+    return res.json();
+  }
+
+  async getWorkflows(): Promise<unknown> {
+    return this.request("/workflows");
+  }
 }
 
 // ─── Test connection (reachability only — no auth in MVP) ───────────────────
@@ -175,15 +263,18 @@ export async function testN8nConnection(baseUrl: string): Promise<N8nTestResult>
 
 /**
  * Make a request to the n8n API.
- * MVP: only includes ngrok bypass headers, no authentication.
- * Will likely 401 on protected instances — handled gracefully by callers.
+ * When creds.apiKey is set, adds X-N8N-API-KEY header for n8n API key auth.
  */
 export async function fetchN8nApi(
   creds: N8nCredentials,
   path: string,
 ): Promise<Response> {
   const url = `${creds.baseUrl}${creds.apiPath}${path}`;
-  return fetch(url, { headers: commonHeaders(), cache: "no-store" });
+  const headers: Record<string, string> = { ...commonHeaders() };
+  if (creds.apiKey) {
+    headers["X-N8N-API-KEY"] = creds.apiKey;
+  }
+  return fetch(url, { headers, cache: "no-store" });
 }
 
 // ─── Error mapping ──────────────────────────────────────────────────────────
