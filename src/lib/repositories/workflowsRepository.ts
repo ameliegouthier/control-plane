@@ -15,6 +15,19 @@ import type { RawWorkflow } from "@/lib/enrichment";
 import { prisma } from "@/lib/prisma";
 import { getDemoUser } from "@/lib/demo-user";
 
+function safeConfigExternalId(dbWorkflow: unknown): string | undefined {
+  try {
+    const cfg = (dbWorkflow as { config?: unknown })?.config as
+      | Record<string, unknown>
+      | undefined
+      | null;
+    const val = cfg?.externalId;
+    return typeof val === "string" ? val : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Convert a WorkflowWithEnrichmentFields (demo) to RawWorkflow format (for enrichment).
  */
@@ -42,10 +55,29 @@ function demoWorkflowToRawWorkflow(wf: WorkflowWithEnrichmentFields): RawWorkflo
   };
 }
 
+/** Derive triggerType and hasPublicWebhook from graph nodes for live workflows. */
+function deriveTriggerMetadata(
+  nodes: Array<{ type?: string; label?: string }>,
+): { triggerType?: string; hasPublicWebhook?: boolean } {
+  const trigger = nodes.find((n) => {
+    const t = (n.type ?? "").toLowerCase();
+    return t.includes("trigger") || t.includes("webhook");
+  });
+  if (!trigger) return {};
+  const type = (trigger.type ?? "").toLowerCase();
+  const hasPublicWebhook = type.includes("webhook");
+  let triggerType: string | undefined;
+  if (type.includes("polling")) triggerType = "polling";
+  else if (type.includes("webhook")) triggerType = "webhook";
+  else if (type.includes("schedule") || type.includes("cron")) triggerType = "schedule";
+  else if (type.includes("trigger")) triggerType = "trigger";
+  return { triggerType, hasPublicWebhook };
+}
+
 /**
  * Convert a generic Workflow (typically from DB) to RawWorkflow format.
- * DB workflows don't currently carry all enrichment hints, so we only
- * populate the fields we can derive safely.
+ * Derives triggerType, hasPublicWebhook, and nodes from workflow.graph.nodes
+ * so signal detection and enrichment work for live n8n/Make workflows.
  */
 function dbWorkflowToRawWorkflow(wf: Workflow): RawWorkflow {
   const nodes =
@@ -55,12 +87,16 @@ function dbWorkflowToRawWorkflow(wf: Workflow): RawWorkflow {
       type: n.type,
     })) ?? [];
 
+  const { triggerType, hasPublicWebhook } = deriveTriggerMetadata(nodes);
+
   return {
     id: wf.id,
     name: wf.name,
     active: wf.active,
     nodesCount: nodes.length,
     nodes,
+    triggerType,
+    hasPublicWebhook,
   };
 }
 
@@ -110,6 +146,15 @@ export async function getAllWorkflowsFromDatabase(): Promise<Workflow[]> {
     orderBy: { updatedAt: "desc" },
   });
   return dbWorkflows.map(toWorkflow);
+}
+
+/**
+ * Load a single workflow by ID for the demo user from the database.
+ * The id must be the database Workflow.id (canonical); provider ids must not be used.
+ */
+export async function getWorkflowByIdFromDatabase(id: string): Promise<Workflow | null> {
+  const all = await getAllWorkflowsFromDatabase();
+  return all.find((w) => w.id === id) ?? null;
 }
 
 /**

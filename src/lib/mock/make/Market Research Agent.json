@@ -1,0 +1,109 @@
+{
+  "name": "Market Research Agent (with Tools)",
+  "flow": [
+    {
+      "id": 1,
+      "module": "fillout:newSubmission",
+      "version": 1,
+      "parameters": {
+        "__IMTHOOK__": null
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": { "x": 0, "y": 0 }
+      }
+    },
+    {
+      "id": 2,
+      "module": "ai-local-agent:RunLocalAIAgent",
+      "version": 0,
+      "parameters": {
+        "makeConnectionId": null
+      },
+      "mapper": {
+        "message": "Analyze this company website: {{1.answers.rxnX}}",
+        "outputType": "text",
+        "defaultModel": "gpt-5.2",
+        "systemPrompt": "You are a Market Research Analyst AI Agent.\n\nWhen given a company URL you must:\n\n1. Scrape the website\n2. Search the web for market context\n3. Produce a structured market analysis\n4. Store the results using the available tools.\n\nProvide sections:\n\n## Company Overview\n\n## Product Analysis\n\n## Market Insights\n\n## Competitive Intelligence"
+      },
+      "metadata": {
+        "designer": {
+          "x": 300,
+          "y": 0,
+          "name": "Market Research Agent"
+        }
+      },
+      "tools": [
+        {
+          "name": "Scrape Website",
+          "description": "Scrape the content of a website",
+          "flow": [
+            {
+              "id": 10,
+              "module": "firecrawl:Scrape",
+              "version": 1,
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "mapper": {
+                "url": "{{1.url}}",
+                "formats": ["markdown"],
+                "onlyMainContent": true,
+                "blockAds": true
+              },
+              "metadata": {
+                "designer": { "x": 600, "y": 200 }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search Web",
+          "description": "Search the web for information about a company",
+          "flow": [
+            {
+              "id": 11,
+              "module": "make-ai-web-search:generateAResponse",
+              "version": 1,
+              "parameters": {},
+              "mapper": {
+                "input": "Search for recent information about {{1.company}} including product news, competitors, funding and pricing.",
+                "parseJson": false
+              },
+              "metadata": {
+                "designer": { "x": 600, "y": 400 }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save Analysis",
+          "description": "Save the market research analysis",
+          "flow": [
+            {
+              "id": 12,
+              "module": "airtable:ActionCreateRecord",
+              "version": 3,
+              "parameters": {
+                "__IMTCONN__": null
+              },
+              "mapper": {
+                "base": "YOUR_BASE_ID",
+                "table": "Analysis Reports",
+                "record": {
+                  "Title": "{{1.title}}",
+                  "Company Name": "{{1.company}}",
+                  "AI Analysis Summary": "{{1.summary}}",
+                  "Competitive Intelligence": "{{1.competitive}}"
+                }
+              },
+              "metadata": {
+                "designer": { "x": 600, "y": 600 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

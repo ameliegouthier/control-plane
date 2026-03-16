@@ -86,22 +86,24 @@ describe("workflow-helpers.toWorkflow()", () => {
   });
 
   describe("External ID handling", () => {
-    it("should use config.externalId when present", () => {
+    it("should use db.id as canonical id and expose config.externalId as externalId", () => {
       const db = createDbWorkflow({
         config: { provider: "n8n", externalId: "new-external-456", actions: {} },
       });
       const result = toWorkflow(db);
 
-      expect(result.id).toBe("new-external-456");
+      expect(result.id).toBe("wf-1");
+      expect(result.externalId).toBe("new-external-456");
     });
 
-    it("should fall back to db.id when config.externalId missing", () => {
+    it("should use db.id when config.externalId missing and no externalId", () => {
       const db = createDbWorkflow({
         config: { provider: "n8n", actions: {} },
       });
       const result = toWorkflow(db);
 
       expect(result.id).toBe("wf-1");
+      expect(result.externalId).toBeUndefined();
     });
   });
 
@@ -199,7 +201,8 @@ describe("workflow-helpers.toWorkflow()", () => {
       expect(result.name).toBe("My Workflow");
       expect(result.active).toBe(false);
       expect(result.provider).toBe("make");
-      expect(result.id).toBe("make-wf-999");
+      expect(result.id).toBe("wf-1");
+      expect(result.externalId).toBe("make-wf-999");
       expect(result.connectionId).toBe("int-1");
       expect(result.updatedAt).toBe(db.updatedAt.toISOString());
       expect(result.createdAt).toBe(db.createdAt.toISOString());

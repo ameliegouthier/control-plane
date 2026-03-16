@@ -23,9 +23,12 @@ export interface ProviderConnection {
 /**
  * Core workflow metadata - provider-agnostic.
  * Contains only essential workflow identification and status information.
+ * id is the canonical DB id (used in routes); externalId is the provider workflow id (metadata only).
  */
 export interface WorkflowCore {
   id: string;
+  /** Provider workflow id (n8n scenario id, Make scenario id). Used as metadata only; never for routing. */
+  externalId?: string;
   name: string;
   active: boolean;
   provider: AutomationProvider;
@@ -33,6 +36,9 @@ export interface WorkflowCore {
   createdAt: string;
   updatedAt: string;
 }
+
+/** Category for normalized nodes (trigger, read, write, notify, ai, transform). */
+export type NodeCategory = "trigger" | "read" | "write" | "notify" | "ai" | "transform";
 
 /**
  * Provider-agnostic graph node representation.
@@ -44,6 +50,16 @@ export interface WorkflowGraphNode {
   label: string; // Human-readable name
   kind: "trigger" | "action" | "router" | "other";
   type: string; // Provider-specific type (may contain prefixes like "n8n-nodes-base.webhook")
+  /** Provider that produced this node (n8n or make). */
+  provider?: "n8n" | "make";
+  /** Normalized service name for grouping (e.g. "slack", "google-sheets"). */
+  service?: string;
+  /** Operation/action name (e.g. "CreateMessage", "createDatabaseItem", or inferred for n8n). */
+  operation?: string;
+  /** @deprecated Use operation instead. Kept for backward compatibility. */
+  action?: string;
+  /** Category: trigger, read, write, notify, ai, transform. */
+  category?: NodeCategory;
   /** Notion database ID (when type contains "notion"). */
   databaseId?: string;
   /** Slack channel ID or channel name (when type contains "slack"), from parameters.channel. */

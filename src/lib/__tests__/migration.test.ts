@@ -75,7 +75,8 @@ describe("Migration Logic", () => {
       const result = toWorkflow(legacy);
 
       expect(result.provider).toBe("n8n");
-      expect(result.id).toBe("n8n-wf-123");
+      expect(result.id).toBe("wf-1");
+      expect(result.externalId).toBe("n8n-wf-123");
     });
 
     it("should derive provider from integration for legacy workflows (make)", () => {
@@ -83,7 +84,8 @@ describe("Migration Logic", () => {
       const result = toWorkflow(legacy);
 
       expect(result.provider).toBe("make");
-      expect(result.id).toBe("make-wf-456");
+      expect(result.id).toBe("wf-1");
+      expect(result.externalId).toBe("make-wf-456");
     });
 
     it("should derive provider from integration for legacy workflows (zapier)", () => {
@@ -91,7 +93,8 @@ describe("Migration Logic", () => {
       const result = toWorkflow(legacy);
 
       expect(result.provider).toBe("zapier");
-      expect(result.id).toBe("zapier-wf-789");
+      expect(result.id).toBe("wf-1");
+      expect(result.externalId).toBe("zapier-wf-789");
     });
 
     it("should use config.provider when present (new world)", () => {
@@ -99,14 +102,16 @@ describe("Migration Logic", () => {
       const result = toWorkflow(newWf);
 
       expect(result.provider).toBe("n8n");
-      expect(result.id).toBe("n8n-wf-999");
+      expect(result.id).toBe("wf-2");
+      expect(result.externalId).toBe("n8n-wf-999");
     });
 
-    it("should use config.externalId when present", () => {
+    it("should expose config.externalId as externalId and db.id as id", () => {
       const newWf = createNewWorkflow("make", "make-external-123", "int-2");
       const result = toWorkflow(newWf);
 
-      expect(result.id).toBe("make-external-123");
+      expect(result.id).toBe("wf-2");
+      expect(result.externalId).toBe("make-external-123");
     });
 
     it("should handle missing integration gracefully", () => {
@@ -115,7 +120,8 @@ describe("Migration Logic", () => {
       const result = toWorkflow(legacy);
 
       expect(result.provider).toBe("n8n");
-      expect(result.id).toBe("wf-123");
+      expect(result.id).toBe("wf-1");
+      expect(result.externalId).toBe("wf-123");
     });
 
     it("should handle invalid provider string gracefully", () => {

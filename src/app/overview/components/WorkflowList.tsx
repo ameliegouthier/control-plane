@@ -1,7 +1,8 @@
-"use client";
+ "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { saveDashboardScroll } from "@/lib/dashboard-scroll";
 import type { WorkflowWithEnrichment, DuplicateMap } from "@/lib/enrichment";
 import type { AutomationProvider } from "@/app/workflow-helpers";
@@ -109,6 +110,26 @@ function ExternalLinkIcon({ className }: { className?: string }) {
   );
 }
 
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+      <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+    </svg>
+  );
+}
+
 function ChevronDown({ className, expanded }: { className?: string; expanded: boolean }) {
   return (
     <svg
@@ -144,6 +165,7 @@ export default function WorkflowList({
   onStatusFilterChange,
   statusCounts,
 }: WorkflowListProps) {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [listExpanded, setListExpanded] = useState(false);
@@ -249,8 +271,8 @@ export default function WorkflowList({
               <th className="px-4 py-2.5 text-left text-[10px] uppercase tracking-wider text-gray-400">Status</th>
               <th className="px-4 py-2.5 text-left text-[10px] uppercase tracking-wider text-gray-400">Runs</th>
               <th className="px-4 py-2.5 text-left text-[10px] uppercase tracking-wider text-gray-400">Last run</th>
-              <th className="px-4 py-2.5 text-left text-[10px] uppercase tracking-wider text-gray-400">Owner</th>
-              <th className="px-4 py-2.5 w-10" />
+              <th className="px-2 py-2.5 text-left text-[10px] uppercase tracking-wider text-gray-400" aria-label="Delete column" />
+              <th className="px-3 py-2.5 w-10" />
             </tr>
           </thead>
           <tbody>
@@ -281,12 +303,37 @@ export default function WorkflowList({
                     <td className="px-4 py-2.5"><StatusCell active={wf.active} health={wf.enrichment.health} /></td>
                     <td className="px-4 py-2.5 text-[12px] text-gray-500 tabular-nums">{mockRuns(wf.id)}</td>
                     <td className="px-4 py-2.5 text-[12px] text-gray-400">{formatRelativeTime(wf.lastExecutionDate)}</td>
-                    <td className="px-4 py-2.5 text-[12px] text-gray-500">{mockOwner(wf.id)}</td>
+                    <td className="px-2 py-2.5">
+                      <button
+                        type="button"
+                        aria-label={`Delete workflow ${wf.name}`}
+                        className="w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors"
+                        onClick={async () => {
+                          if (
+                            !window.confirm(
+                              "Delete this workflow from the system?",
+                            )
+                          ) {
+                            return;
+                          }
+                          try {
+                            await fetch(`/api/workflows/${wf.id}`, {
+                              method: "DELETE",
+                            });
+                            router.refresh();
+                          } catch {
+                            // Ignore network errors for now; user can retry.
+                          }
+                        }}
+                      >
+                        <TrashIcon className="w-[13px] h-[13px]" />
+                      </button>
+                    </td>
                     <td className="px-4 py-2.5">
                       <Link
                         href={`/workflows/${wf.id}`}
-                        onClick={saveDashboardScroll}
-                        className="inline-flex items-center justify-center cursor-pointer text-gray-300 opacity-0 group-hover:opacity-100 group-hover:text-gray-600 transition-all hover:text-gray-800"
+                        onClick={() => saveDashboardScroll()}
+                        className="inline-flex items-center justify-center cursor-pointer text-gray-300 hover:text-gray-800 transition-all"
                         aria-label={`Open workflow ${wf.name}`}
                       >
                         <ExternalLinkIcon className="w-3 h-3" />

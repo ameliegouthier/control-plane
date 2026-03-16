@@ -131,13 +131,12 @@ export function toWorkflow(db: DbWorkflow): Workflow {
   }
   // else: no graph and no legacy → graph stays undefined
 
-  // Use externalId from config or top-level, then toolWorkflowId, else Prisma id
+  // Canonical id is always the DB id (used in routes). Provider id is metadata only.
   const configObj = db.config as Record<string, unknown> | null | undefined;
-  const workflowId =
+  const externalId =
     (configObj?.externalId as string | undefined) ??
     (db as { externalId?: string }).externalId ??
-    (db as { toolWorkflowId?: string }).toolWorkflowId ??
-    db.id;
+    (db as { toolWorkflowId?: string }).toolWorkflowId;
 
   // Workflow uses integrationId; expose as connectionId for provider abstraction
   const connectionId =
@@ -145,7 +144,8 @@ export function toWorkflow(db: DbWorkflow): Workflow {
     (db as { connectionId?: string }).connectionId;
 
   return {
-    id: workflowId,
+    id: db.id,
+    ...(externalId != null && { externalId }),
     name: db.name,
     active: db.status === "active",
     provider,
@@ -171,6 +171,13 @@ function parseGraphNode(val: unknown): WorkflowGraphNode | null {
     kind: (obj.kind as "trigger" | "action" | "router" | "other") ?? "other",
     type: obj.type,
   };
+  if (typeof obj.provider === "string" && (obj.provider === "n8n" || obj.provider === "make")) node.provider = obj.provider;
+  if (typeof obj.service === "string" && obj.service) node.service = obj.service;
+  if (typeof obj.operation === "string") node.operation = obj.operation;
+  if (typeof obj.action === "string") node.action = obj.action;
+  const validCategory = (c: unknown): c is import("@/lib/providers/types").NodeCategory =>
+    typeof c === "string" && ["trigger", "read", "write", "notify", "ai", "transform"].includes(c);
+  if (validCategory(obj.category)) node.category = obj.category;
   if (typeof obj.databaseId === "string" && obj.databaseId) node.databaseId = obj.databaseId;
   if (typeof obj.channelId === "string" && obj.channelId) node.channelId = obj.channelId;
   return node;
@@ -206,6 +213,8 @@ export interface MiniMapNode {
   name: string;
   type: string;
   label: string;
+  /** Normalized service name (e.g. "slack", "google-sheets") when present. */
+  service?: string;
   /** Notion database ID when present. */
   databaseId?: string;
   /** Slack channel ID or name when present. */
@@ -512,6 +521,7 @@ export function buildMiniMap(graph: WorkflowGraph | undefined): MiniMap {
     name: n.label,
     type: n.type,
     label: formatNodeType(n.type),
+    ...(n.service != null && { service: n.service }),
     ...(n.databaseId != null && { databaseId: n.databaseId }),
     ...(n.channelId != null && { channelId: n.channelId }),
   });

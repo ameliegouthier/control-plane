@@ -16,7 +16,10 @@ import {
   getWorkflowBucket,
   summarizeWorkflowActions,
 } from "@/lib/action-engine/issueEngine";
-import type { EnrichedIssue, IssueBucket } from "@/lib/action-engine/issueEngine";
+import type {
+  EnrichedIssue,
+  IssueCategory,
+} from "@/lib/action-engine/issueEngine";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -72,19 +75,21 @@ export type WorkflowWithEnrichment = RawWorkflow & {
   enrichment: WorkflowEnrichment;
 };
 
-/** Extended enrichment with issues + severity + bucket (Urgent vs Optimization). */
+/** Extended enrichment with issues + severity + category (broken/security/optimization). */
 export type WorkflowWithFullEnrichment = WorkflowWithEnrichment & {
   /** Raw issues from detection (unchanged for backward compatibility). */
   issues: WorkflowIssue[];
-  /** Issues with bucket, severity + copy (rule-based). */
+  /** Issues with category, severity + copy (rule-based). */
   issuesEnriched: EnrichedIssue[];
   /** Max issue severity 0–100. */
   severity: number;
-  /** Workflow-level bucket: urgent if any urgent issue, optimization if only optimization, null if no issues. */
-  bucket: IssueBucket | null;
-  /** At least one urgent (Critical) issue. */
-  hasUrgent: boolean;
-  /** At least one optimization (Improve) issue. */
+  /** Workflow-level primary category: broken, security, optimization, or null if no issues. */
+  category: IssueCategory | null;
+  /** At least one broken issue. */
+  hasBroken: boolean;
+  /** At least one security issue. */
+  hasSecurity: boolean;
+  /** At least one optimization issue. */
   hasOptimization: boolean;
   /** Type of the top-priority issue, if any. */
   topIssueType?: string;
@@ -161,7 +166,11 @@ export function detectDuplicates(
 
 // ─── Issue derivation (Action Engine v0) ─────────────────────────────────────
 
-export type { WorkflowIssue, EnrichedIssue, IssueBucket } from "@/lib/action-engine/issueEngine";
+export type {
+  WorkflowIssue,
+  EnrichedIssue,
+  IssueCategory,
+} from "@/lib/action-engine/issueEngine";
 export { getWorkflowBucket } from "@/lib/action-engine/issueEngine";
 
 /**
@@ -181,18 +190,12 @@ export function getIssuesForWorkflow(
   if (enrichment.riskFlags.includes("public_webhook")) {
     issues.push({ type: "public_webhook" });
   }
-  if (enrichment.riskFlags.includes("inactive")) {
-    issues.push({ type: "inactive" });
-  }
   const duplicateOf = options?.duplicateOf;
   if (duplicateOf?.length) {
     issues.push({
       type: "duplicate",
       metadata: { similarWorkflowNames: duplicateOf },
     });
-  }
-  if (enrichment.health === "warning" && !issues.some((i) => i.type === "broken")) {
-    issues.push({ type: "warning" });
   }
   const otherFlags = enrichment.riskFlags.filter(
     (f) =>
@@ -222,15 +225,23 @@ export function addIssuesToEnrichedWorkflows(
     const issuesEnriched = enrichIssues(issues);
     const severity = getWorkflowSeverity(issuesEnriched);
     const summary = summarizeWorkflowActions(issuesEnriched);
-    const { hasUrgent, hasOptimization } = getWorkflowBuckets(issuesEnriched);
-    const bucket = getWorkflowBucket(issuesEnriched);
+    const { hasBroken, hasSecurity, hasOptimization } =
+      getWorkflowBuckets(issuesEnriched);
+    const category = getWorkflowBucket(issuesEnriched);
+    if (process.env.NODE_ENV === "development" && issuesEnriched.length > 0) {
+      console.log("OPTIMIZATION_DEBUG: issues detected", {
+        workflowId: wf.id,
+        issues: issuesEnriched,
+      });
+    }
     return {
       ...wf,
       issues,
       issuesEnriched,
       severity,
-      bucket,
-      hasUrgent,
+      category,
+      hasBroken,
+      hasSecurity,
       hasOptimization,
       topIssueType: summary.topIssue?.type,
       topRecommendedAction: summary.topRecommendedAction ?? undefined,

@@ -12,13 +12,17 @@ import { N8NAdapter } from "../n8n-adapter";
 import type { ProviderConnection } from "../types";
 import { PrismaClient } from "@prisma/client";
 
-// Mock Prisma (Integration model: workflow uses findFirst, integrationId, config)
+// Mock Prisma (Integration model: workflow uses findFirst, integrationId, config; syncWorkflowNodes uses workflowNode)
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     workflow: {
       findFirst: vi.fn(),
       update: vi.fn(),
       create: vi.fn(),
+    },
+    workflowNode: {
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     integration: {
       update: vi.fn(),
@@ -108,6 +112,11 @@ describe("N8N Adapter Upsert Logic", () => {
   describe("Create: no existing workflow", () => {
     it("should create new workflow with integrationId and config", async () => {
       (prisma.workflow.findFirst as any).mockResolvedValueOnce(null);
+      (prisma.workflow.create as any).mockResolvedValueOnce({
+        id: "new-db-id",
+        integrationId: "conn-1",
+        name: "Test Workflow",
+      });
 
       getWorkflowsMock.mockResolvedValueOnce({ data: [mockN8nWorkflow] });
 

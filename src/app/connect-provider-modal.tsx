@@ -13,7 +13,7 @@ interface ConnectProviderModalProps {
 }
 
 // ─── Integration vs Connection API ──────────────────────────────────────────
-// Integration = automation tools (n8n, make, zapier) → POST /api/integrations/[provider]
+// Integration = automation tools (n8n, make, zapier) → POST /api/integrations/[id] (id = provider name)
 // Connection = external services (notion, slack, airtable) → POST /api/connections/[provider]
 
 const INTEGRATION_PROVIDERS: AutomationProvider[] = ["n8n", "make", "zapier"];
@@ -170,10 +170,16 @@ export default function ConnectProviderModal({
         return;
       }
 
-      // Step 3 — trigger workflow sync (n8n) then close
+      // Step 3 — trigger workflow sync so Workflow table is populated (n8n, make)
       if (provider === "n8n") {
         try {
           await fetch("/api/n8n/workflows", { method: "GET" });
+        } catch {
+          // Sync failure is non-blocking; page refresh will retry
+        }
+      } else if (provider === "make") {
+        try {
+          await fetch("/api/integrations/make/workflows", { method: "GET" });
         } catch {
           // Sync failure is non-blocking; page refresh will retry
         }

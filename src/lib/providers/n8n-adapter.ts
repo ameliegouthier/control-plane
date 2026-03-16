@@ -14,12 +14,15 @@ import type {
   FetchWorkflowsResult,
   SyncWorkflowsResult,
   Workflow,
-  WorkflowGraph,
   WorkflowGraphNode,
-  WorkflowGraphEdge,
   RawProviderWorkflow,
 } from "./types";
-import { extractNotionDatabaseId } from "./notion-resources";
+import { syncWorkflowNodes } from "./sync-workflow-nodes";
+import {
+  normalizeN8nNode,
+  buildN8nEdges,
+  buildGraph,
+} from "./normalize-workflow";
 
 // ─── n8n-specific types ────────────────────────────────────────────────────────
 
@@ -86,6 +89,8 @@ export class N8NAdapter implements ProviderAdapter {
 
   /**
    * Normalize an n8n workflow into the generic Workflow model with WorkflowGraph.
+   * Uses the shared normalization layer (normalize-workflow.ts) so n8n and Make
+   * produce the same normalized node shape (id, label, service, action?, kind, type).
    */
   normalizeWorkflow(
     raw: RawProviderWorkflow,
@@ -97,88 +102,28 @@ export class N8NAdapter implements ProviderAdapter {
       return null;
     }
 
-    // Normalize nodes to WorkflowGraph format (including external resource IDs)
     const rawNodes = n8nWorkflow.nodes ?? [];
-    const graphNodes: WorkflowGraphNode[] = rawNodes.map((n, index) => {
-      const nodeId = n.id ?? `node_${index}`;
-      const nodeName = n.name ?? `Node ${index}`;
-      const nodeType = n.type ?? "unknown";
-      const typeLower = nodeType.toLowerCase();
-      
-      // Determine node kind based on type
-      let kind: "trigger" | "action" | "router" | "other" = "other";
-      if (typeLower.includes("trigger") || typeLower.includes("webhook")) {
-        kind = "trigger";
-      } else if (typeLower.includes("if") || typeLower.includes("switch") || typeLower.includes("router")) {
-        kind = "router";
-      } else if (!typeLower.includes("trigger")) {
-        kind = "action";
-      }
+    const workflowExternalId = String(n8nWorkflow.id);
 
-      const base: WorkflowGraphNode = {
-        id: nodeId,
-        label: nodeName,
-        kind,
-        type: nodeType,
-      };
+    const normalizedNodes = rawNodes.map((n, index) =>
+      normalizeN8nNode(n, index, workflowExternalId)
+    );
 
-      if (typeLower.includes("notion")) {
-        const databaseId = extractNotionDatabaseId(n);
-        if (databaseId) base.databaseId = databaseId;
-      }
-      if (typeLower.includes("slack")) {
-        const params = n.parameters ?? {};
-        const channel = params.channel;
-        if (typeof channel === "string" && channel) base.channelId = channel;
-      }
-
-      return base;
-    });
-
-    // Normalize connections to WorkflowGraph edges
-    // Create mapping from node name to node ID
     const nameToId = new Map<string, string>();
-    for (const node of graphNodes) {
-      // Find the original node by matching label to name
-      const originalNode = rawNodes.find((n) => (n.name ?? "") === node.label);
-      if (originalNode) {
-        const originalName = originalNode.name ?? "";
-        nameToId.set(originalName, node.id);
-      }
+    for (const node of normalizedNodes) {
+      nameToId.set(node.label, node.id);
     }
 
-    const edges: WorkflowGraphEdge[] = [];
     const connections = n8nWorkflow.connections as Record<string, {
       main?: Array<Array<{ node: string; type: string; index: number }>>;
     }> | undefined;
+    const edges = buildN8nEdges(connections, nameToId);
+    const graph = buildGraph(normalizedNodes, edges);
 
-    if (connections) {
-      for (const [sourceNodeName, conn] of Object.entries(connections)) {
-        const sourceId = nameToId.get(sourceNodeName);
-        if (!sourceId) continue;
-        
-        const mainConnections = conn.main ?? [];
-        for (const slot of mainConnections) {
-          for (const edge of slot) {
-            const targetId = nameToId.get(edge.node);
-            if (targetId) {
-              edges.push({
-                from: sourceId,
-                to: targetId,
-              });
-            }
-          }
-        }
-      }
-    }
-
-    const graph: WorkflowGraph = {
-      nodes: graphNodes,
-      edges,
-    };
-
+    const providerWorkflowId = String(n8nWorkflow.id);
     return {
-      id: String(n8nWorkflow.id),
+      id: providerWorkflowId, // Sync uses this only to fill config.externalId; UI gets DB id from repository
+      externalId: providerWorkflowId,
       name: n8nWorkflow.name,
       active: n8nWorkflow.active ?? false,
       provider: "n8n",
@@ -267,9 +212,11 @@ export class N8NAdapter implements ProviderAdapter {
         const integrationId = connection.id;
         const workflowConfig = {
           provider: normalized.provider,
-          externalId: normalized.id,
+          externalId: normalized.externalId ?? normalized.id,
           actions,
           triggerConfig,
+          // Debug-only: keep a snapshot of the original provider payload.
+          rawProviderWorkflow: rawWf,
         } as Prisma.InputJsonValue;
 
         const existing = await prisma.workflow.findFirst({
@@ -283,20 +230,25 @@ export class N8NAdapter implements ProviderAdapter {
           config: workflowConfig,
         };
 
+        let workflowId: string;
         if (existing) {
           await prisma.workflow.update({
             where: { id: existing.id },
             data: workflowData,
           });
+          workflowId = existing.id;
         } else {
-          await prisma.workflow.create({
+          const created = await prisma.workflow.create({
             data: {
               userId: connection.userId,
               integrationId,
               ...workflowData,
             },
           });
+          workflowId = created.id;
         }
+
+        await syncWorkflowNodes(workflowId, normalized.graph);
 
         synced++;
       }

@@ -52,3 +52,36 @@ export async function syncN8nWorkflows(): Promise<SyncResult> {
     rawPayload: result.rawPayload,
   };
 }
+
+/**
+ * Fetch workflows from the connected provider (n8n or make) and sync them into the DB.
+ * Use after creating/updating an integration so the Workflow table is populated.
+ */
+export async function syncProviderWorkflows(
+  provider: "n8n" | "make"
+): Promise<SyncResult> {
+  if (provider === "n8n") {
+    return syncN8nWorkflows();
+  }
+
+  const conn = await getProviderConnection("make");
+  if (!conn) {
+    return { success: false, synced: 0, error: "make is not connected" };
+  }
+
+  const connection: ProviderConnection = {
+    id: conn.connectionId,
+    provider: "make",
+    userId: conn.userId,
+    status: "ACTIVE",
+    config: conn.config,
+  };
+
+  const adapter = getProviderAdapter("make");
+  const result = await adapter.syncWorkflows(connection);
+  return {
+    success: result.success,
+    synced: result.synced,
+    error: result.error,
+  };
+}

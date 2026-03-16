@@ -1,15 +1,12 @@
 /**
- * Action Engine v0 — Issue severity, bucket (Urgent vs Optimization), and copy.
+ * Action Engine v0 — Issue severity, category, and copy.
  * Provider-agnostic; single source of truth for issue priority and messaging.
- *
- * Urgent (Critical): something is broken right now — fix immediately.
- * Optimization (Improve): reduce risk / maintain hygiene — improve when capacity allows.
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-/** Urgent = fix now. Optimization = improve when possible. */
-export type IssueBucket = "urgent" | "optimization";
+/** Product-facing categories for issues. */
+export type IssueCategory = "broken" | "security" | "optimization";
 
 /** Extensible union of issue types (aligned with detection). */
 export type IssueType =
@@ -17,8 +14,6 @@ export type IssueType =
   | "conflict"
   | "public_webhook"
   | "duplicate"
-  | "inactive"
-  | "warning"
   | "info";
 
 /** Severity score 0–100 (higher = more urgent within same bucket). */
@@ -36,9 +31,9 @@ export interface WorkflowIssue {
   metadata?: Record<string, unknown>;
 }
 
-/** Issue with bucket, severity and copy (output of issue engine). */
+/** Issue with category, severity and copy (output of issue engine). */
 export type EnrichedIssue = WorkflowIssue & {
-  bucket: IssueBucket;
+  category: IssueCategory;
   severity: number;
   copy: IssueCopy;
 };
@@ -46,14 +41,14 @@ export type EnrichedIssue = WorkflowIssue & {
 // ─── Rules (single source of truth) ───────────────────────────────────────────
 
 export interface IssueRule {
-  bucket: IssueBucket;
+  category: IssueCategory;
   severity: number;
   copy: IssueCopy;
 }
 
 /** Single fallback for unknown issue types: optimization, score 30, generic copy. */
 export const DEFAULT_RULE: IssueRule = {
-  bucket: "optimization",
+  category: "optimization",
   severity: 30,
   copy: {
     impact: "This item may need attention.",
@@ -65,7 +60,7 @@ export const DEFAULT_RULE: IssueRule = {
 /** Central table: issue type → bucket + severity + copy. */
 export const ISSUE_RULES: Record<IssueType, IssueRule> = {
   broken: {
-    bucket: "urgent",
+    category: "broken",
     severity: 100,
     copy: {
       impact: "Automation is not running reliably.",
@@ -75,7 +70,7 @@ export const ISSUE_RULES: Record<IssueType, IssueRule> = {
     },
   },
   conflict: {
-    bucket: "urgent",
+    category: "broken",
     severity: 90,
     copy: {
       impact: "Two workflows may trigger the same downstream action.",
@@ -85,7 +80,7 @@ export const ISSUE_RULES: Record<IssueType, IssueRule> = {
     },
   },
   public_webhook: {
-    bucket: "optimization",
+    category: "security",
     severity: 80,
     copy: {
       impact: "Endpoint can be triggered without authentication.",
@@ -95,7 +90,7 @@ export const ISSUE_RULES: Record<IssueType, IssueRule> = {
     },
   },
   duplicate: {
-    bucket: "optimization",
+    category: "optimization",
     severity: 70,
     copy: {
       impact: "Same automation exists multiple times.",
@@ -104,28 +99,8 @@ export const ISSUE_RULES: Record<IssueType, IssueRule> = {
         "Keep one source of truth and archive the duplicates.",
     },
   },
-  inactive: {
-    bucket: "optimization",
-    severity: 50,
-    copy: {
-      impact: "Automation is not currently active.",
-      why: "May indicate deprecated processes or forgotten critical ops.",
-      recommendedAction:
-        "Confirm if still needed, then re-enable or archive.",
-    },
-  },
-  warning: {
-    bucket: "optimization",
-    severity: 40,
-    copy: {
-      impact: "Workflow has risk flags or has not run recently.",
-      why: "Stale or risky setups can lead to missed automations.",
-      recommendedAction:
-        "Review last execution, triggers, and re-enable or update if needed.",
-    },
-  },
   info: {
-    bucket: "optimization",
+    category: "optimization",
     severity: 20,
     copy: {
       impact: "Informational note only.",
@@ -139,38 +114,39 @@ export const ISSUE_RULES: Record<IssueType, IssueRule> = {
 // ─── Scoring & enrichment ─────────────────────────────────────────────────────
 
 /**
- * Enrich a single raw issue with bucket, severity and copy.
- * Unknown types use DEFAULT_RULE (optimization, score 30, generic copy).
+ * Enrich a single raw issue with category, severity and copy.
+ * Unknown types use DEFAULT_RULE (optimization category, score 30, generic copy).
  */
 export function enrichIssue(issue: WorkflowIssue): EnrichedIssue {
   const rule = ISSUE_RULES[issue.type as IssueType];
-  const { bucket, severity, copy } = rule ?? DEFAULT_RULE;
+  const { category, severity, copy } = rule ?? DEFAULT_RULE;
   return {
     ...issue,
-    bucket,
+    category,
     severity,
     copy,
   };
 }
 
-/** Bucket order for stable sort: urgent first (0), then optimization (1). */
-const BUCKET_ORDER: Record<IssueBucket, number> = {
-  urgent: 0,
-  optimization: 1,
+/** Category order for stable sort: broken → security → optimization. */
+const CATEGORY_ORDER: Record<IssueCategory, number> = {
+  broken: 0,
+  security: 1,
+  optimization: 2,
 };
 
 /**
  * Enrich all issues and sort with stable priority:
- * 1. Bucket (urgent before optimization)
+ * 1. Category (broken, then security, then optimization)
  * 2. Score descending
  * 3. Type ascending (deterministic tie-break)
  */
 export function enrichIssues(issues: WorkflowIssue[]): EnrichedIssue[] {
   const enriched = issues.map(enrichIssue);
   return enriched.sort((a, b) => {
-    const bucketA = BUCKET_ORDER[a.bucket];
-    const bucketB = BUCKET_ORDER[b.bucket];
-    if (bucketA !== bucketB) return bucketA - bucketB;
+    const categoryA = CATEGORY_ORDER[a.category];
+    const categoryB = CATEGORY_ORDER[b.category];
+    if (categoryA !== categoryB) return categoryA - categoryB;
     if (b.severity !== a.severity) return b.severity - a.severity;
     return (a.type ?? "").localeCompare(b.type ?? "", undefined, { sensitivity: "base" });
   });
@@ -186,7 +162,7 @@ export function getWorkflowSeverity(issues: EnrichedIssue[]): number {
 
 /**
  * Next best action summary for a workflow (top issue + recommended action).
- * Uses same priority as enrichIssues: bucket (urgent first), then severity desc, then type.
+   * Uses same priority as enrichIssues: category (broken, then security, then optimization), then severity desc, then type.
  */
 export function summarizeWorkflowActions(issues: EnrichedIssue[]): {
   topSeverity: number;
@@ -194,9 +170,9 @@ export function summarizeWorkflowActions(issues: EnrichedIssue[]): {
   topRecommendedAction: string | null;
 } {
   const sorted = [...issues].sort((a, b) => {
-    const bucketA = BUCKET_ORDER[a.bucket];
-    const bucketB = BUCKET_ORDER[b.bucket];
-    if (bucketA !== bucketB) return bucketA - bucketB;
+    const categoryA = CATEGORY_ORDER[a.category];
+    const categoryB = CATEGORY_ORDER[b.category];
+    if (categoryA !== categoryB) return categoryA - categoryB;
     if (b.severity !== a.severity) return b.severity - a.severity;
     return (a.type ?? "").localeCompare(b.type ?? "", undefined, { sensitivity: "base" });
   });
@@ -209,36 +185,44 @@ export function summarizeWorkflowActions(issues: EnrichedIssue[]): {
 }
 
 /**
- * Split enriched issues into urgent vs optimization (for UI sections).
+ * Split enriched issues into categories (for UI sections).
  */
 export function getWorkflowBuckets(issues: EnrichedIssue[]): {
-  urgent: EnrichedIssue[];
+  broken: EnrichedIssue[];
+  security: EnrichedIssue[];
   optimization: EnrichedIssue[];
-  hasUrgent: boolean;
+  hasBroken: boolean;
+  hasSecurity: boolean;
   hasOptimization: boolean;
 } {
-  const urgent = issues.filter((i) => i.bucket === "urgent");
-  const optimization = issues.filter((i) => i.bucket === "optimization");
+  const broken = issues.filter((i) => i.category === "broken");
+  const security = issues.filter((i) => i.category === "security");
+  const optimization = issues.filter((i) => i.category === "optimization");
   return {
-    urgent,
+    broken,
+    security,
     optimization,
-    hasUrgent: urgent.length > 0,
+    hasBroken: broken.length > 0,
+    hasSecurity: security.length > 0,
     hasOptimization: optimization.length > 0,
   };
 }
 
 /**
- * Workflow-level bucket from enriched issues.
- * - ≥1 urgent issue → "urgent"
- * - No urgent but ≥1 optimization → "optimization"
+ * Workflow-level category from enriched issues.
+ * - ≥1 broken issue → "broken"
+ * - No broken but ≥1 security issue → "security"
+ * - No broken/security but ≥1 optimization → "optimization"
  * - No issues → null
  */
 export function getWorkflowBucket(
   issuesEnriched: EnrichedIssue[],
-): IssueBucket | null {
+): IssueCategory | null {
   if (issuesEnriched.length === 0) return null;
-  const hasUrgent = issuesEnriched.some((i) => i.bucket === "urgent");
-  if (hasUrgent) return "urgent";
-  const hasOptimization = issuesEnriched.some((i) => i.bucket === "optimization");
+  const hasBroken = issuesEnriched.some((i) => i.category === "broken");
+  if (hasBroken) return "broken";
+  const hasSecurity = issuesEnriched.some((i) => i.category === "security");
+  if (hasSecurity) return "security";
+  const hasOptimization = issuesEnriched.some((i) => i.category === "optimization");
   return hasOptimization ? "optimization" : null;
 }

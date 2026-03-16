@@ -2,8 +2,11 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import ConnectProviderModal from "../connect-provider-modal";
-import type { AutomationProvider, Workflow } from "@/app/workflow-helpers";
+import type {
+  AutomationProvider,
+  Workflow,
+  WorkflowGraph,
+} from "@/app/workflow-helpers";
 import {
   type WorkflowWithFullEnrichment,
   type HealthStatus,
@@ -14,19 +17,57 @@ import {
 } from "@/lib/enrichment";
 import { getDashboardScroll, clearDashboardScroll } from "@/lib/dashboard-scroll";
 import { SectionHeader, Badge } from "@/components/ui";
-import SidebarTools from "./components/SidebarTools";
+import { useProviderFilter } from "@/hooks/useProviderFilter";
 import KpiCards, { computeSystemHealth } from "./components/KpiCards";
 import SystemMap from "./components/SystemMap";
 import WorkflowList from "./components/WorkflowList";
 import ActionCenter, { type ActionItem } from "./components/ActionCenter";
 
-type EnrichedWorkflow = WorkflowWithFullEnrichment & { tool: AutomationProvider };
+type EnrichedWorkflow = WorkflowWithFullEnrichment & {
+  tool: AutomationProvider;
+  graph?: WorkflowGraph;
+};
+
+function ResyncAllButton({ integrationIds }: { integrationIds: string[] }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleSync = async () => {
+    if (integrationIds.length === 0) return;
+    setLoading(true);
+
+    try {
+      await Promise.all(
+        integrationIds.map((id) =>
+          fetch(`/api/integrations/${id}/sync`, { method: "POST" })
+        )
+      );
+    } catch {
+      // Swallow errors; page reload will reflect eventual state.
+    } finally {
+      setLoading(false);
+      window.location.reload();
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleSync}
+      disabled={loading || integrationIds.length === 0}
+      className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:opacity-60"
+    >
+      {loading ? "Resyncing…" : "Resync workflows"}
+    </button>
+  );
+}
 
 export type OverviewClientProps = {
   rawWorkflows: RawWorkflow[];
   workflows: Workflow[];
   /** Server-rendered source of truth for whether demo mode is enabled. */
   initialDemoMode: boolean;
+  /** Integration IDs to show Resync/Disconnect for (from DB integrations, not derived from workflows). */
+  integrationIdsForSync?: string[];
 };
 
 export type StatusFilter = "all" | "ok" | "broken" | "inactive";
@@ -35,11 +76,14 @@ export default function OverviewClient({
   rawWorkflows,
   workflows,
   initialDemoMode,
+  integrationIdsForSync = [],
 }: OverviewClientProps): React.JSX.Element {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [selectedTool, setSelectedTool] = useState<string | null>(null);
-  const [showConnectModal, setShowConnectModal] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<AutomationProvider | null>(null);
+  const { setWorkflows, filterByProviders } = useProviderFilter();
+
+  useEffect(() => {
+    setWorkflows(workflows);
+  }, [workflows, setWorkflows]);
 
   const enrichedBase = useMemo(
     () =>
@@ -49,6 +93,7 @@ export default function OverviewClient({
           ...w,
           enrichment: getEnrichmentForWorkflow(w),
           tool: (workflow?.provider ?? "n8n") as AutomationProvider,
+          graph: workflow?.graph,
         };
       }),
     [rawWorkflows, workflows],
@@ -64,51 +109,86 @@ export default function OverviewClient({
       addIssuesToEnrichedWorkflows(enrichedBase, duplicateMapFull).map((wf) => ({
         ...wf,
         tool: (enrichedBase.find((e) => e.id === wf.id)?.tool ?? "n8n") as AutomationProvider,
+        provider: (enrichedBase.find((e) => e.id === wf.id)?.tool ?? "n8n") as string,
       })),
     [enrichedBase, duplicateMapFull],
   );
 
+  const providerFiltered = useMemo(
+    () => filterByProviders(enriched),
+    [enriched, filterByProviders],
+  );
+
   const urgentActions: ActionItem[] = useMemo(() => {
-    const list = enriched.filter((wf) => wf.enrichment.health === "broken");
+    const list = providerFiltered.filter((wf) =>
+      wf.issuesEnriched.some(
+        (i) => i.category === "broken" || i.category === "security",
+      ),
+    );
     const sorted = [...list].sort((a, b) => {
       if (b.severity !== a.severity) return b.severity - a.severity;
-      return (a.name ?? "").localeCompare(b.name ?? "", undefined, { sensitivity: "base" });
+      return (a.name ?? "").localeCompare(b.name ?? "", undefined, {
+        sensitivity: "base",
+      });
     });
-    return sorted.map((workflow) => ({
-      workflow: {
-        id: workflow.id,
-        name: workflow.name,
-        tool: workflow.tool,
-        severity: workflow.severity,
-        bucket: "urgent" as const,
-        issuesEnriched: workflow.issuesEnriched,
-        issues: workflow.issues,
-      },
-      topIssue: workflow.issuesEnriched?.find((i) => i.bucket === "urgent") ?? workflow.issuesEnriched?.[0],
-    }));
-  }, [enriched]);
+    return sorted.map((workflow) => {
+      const topIssue =
+        workflow.issuesEnriched
+          .filter(
+            (i) => i.category === "broken" || i.category === "security",
+          )
+          .sort((a, b) => b.severity - a.severity)[0] ??
+        workflow.issuesEnriched[0];
+      return {
+        workflow: {
+          id: workflow.id,
+          name: workflow.name,
+          tool: workflow.tool,
+          severity: workflow.severity,
+          bucket: "urgent" as const,
+          issuesEnriched: workflow.issuesEnriched,
+          issues: workflow.issues,
+        },
+        topIssue,
+      };
+    });
+  }, [providerFiltered]);
 
   const optimizationActions: ActionItem[] = useMemo(() => {
-    const list = enriched.filter(
+    const list = providerFiltered.filter(
       (wf) => wf.hasOptimization && wf.enrichment.health !== "broken",
     );
     const sorted = [...list].sort((a, b) => b.severity - a.severity);
-    return sorted.map((workflow) => ({
-      workflow: {
-        id: workflow.id,
-        name: workflow.name,
-        tool: workflow.tool,
-        severity: workflow.severity,
-        bucket: "optimization" as const,
-        issuesEnriched: workflow.issuesEnriched,
-        issues: workflow.issues,
-      },
-      topIssue: workflow.issuesEnriched?.find((i) => i.bucket === "optimization") ?? workflow.issuesEnriched?.[0],
-    }));
-  }, [enriched]);
+    const actions = sorted.map((workflow) => {
+      const topIssue =
+        workflow.issuesEnriched
+          .filter((i) => i.category === "optimization")
+          .sort((a, b) => b.severity - a.severity)[0] ??
+        workflow.issuesEnriched[0];
+      return {
+        workflow: {
+          id: workflow.id,
+          name: workflow.name,
+          tool: workflow.tool,
+          severity: workflow.severity,
+          bucket: "optimization" as const,
+          issuesEnriched: workflow.issuesEnriched,
+          issues: workflow.issues,
+        },
+        topIssue,
+      };
+    });
+    if (process.env.NODE_ENV === "development") {
+      console.log("OPTIMIZATION_DEBUG: optimization actions", {
+        workflowIds: actions.map((a) => a.workflow.id),
+        actions,
+      });
+    }
+    return actions;
+  }, [providerFiltered]);
 
   const filtered = useMemo(() => {
-    let result: EnrichedWorkflow[] = enriched;
+    let result: EnrichedWorkflow[] = providerFiltered;
 
     if (statusFilter === "ok") {
       result = result.filter((wf) => wf.active && wf.enrichment.health !== "broken");
@@ -118,12 +198,8 @@ export default function OverviewClient({
       result = result.filter((wf) => !wf.active);
     }
 
-    if (selectedTool) {
-      result = result.filter((wf) => wf.tool === selectedTool);
-    }
-
     return result;
-  }, [enriched, statusFilter, selectedTool]);
+  }, [providerFiltered, statusFilter]);
 
   const totalWorkflows = filtered.length;
   const activeWorkflows = filtered.filter((w) => w.active).length;
@@ -149,6 +225,10 @@ export default function OverviewClient({
     (w) => w.lastExecutionStatus === "error",
   ).length;
 
+  /** Server-supplied integration IDs so Resync/Disconnect run for every connected provider (e.g. Make with no workflows yet). */
+  const resyncIntegrationIds = integrationIdsForSync;
+  const deleteIntegrationIds = integrationIdsForSync;
+
   const fullWorkflowsForTable = useMemo(() => {
     const ids = new Set(filtered.map((wf) => wf.id));
     return workflows.filter((w) => ids.has(w.id));
@@ -161,11 +241,6 @@ export default function OverviewClient({
 
   const router = useRouter();
 
-  const handleConnectSuccess = useCallback(() => {
-    setShowConnectModal(false);
-    router.refresh();
-  }, [router]);
-
   useEffect(() => {
     const savedScroll = getDashboardScroll();
     if (savedScroll != null) {
@@ -176,9 +251,9 @@ export default function OverviewClient({
 
   const allSystemsOk = systemHealth >= 80 && executionFailures === 0;
 
-  const okCount = enriched.filter((w) => w.active && w.enrichment.health !== "broken").length;
-  const brokenCountAll = enriched.filter((w) => w.enrichment.health === "broken").length;
-  const inactiveCountAll = enriched.filter((w) => !w.active).length;
+  const okCount = providerFiltered.filter((w) => w.active && w.enrichment.health !== "broken").length;
+  const brokenCountAll = providerFiltered.filter((w) => w.enrichment.health === "broken").length;
+  const inactiveCountAll = providerFiltered.filter((w) => !w.active).length;
 
   const handleSetDemoMode = useCallback(
     async (enabled: boolean) => {
@@ -200,28 +275,6 @@ export default function OverviewClient({
 
   return (
     <div className="bg-[#fafafa] min-h-screen">
-      <SidebarTools
-        workflows={workflows}
-        selectedTool={selectedTool}
-        onSelectTool={setSelectedTool}
-        onAddIntegration={(provider) => {
-          setSelectedProvider(provider as AutomationProvider);
-          setShowConnectModal(true);
-        }}
-      />
-
-      {selectedProvider && (
-        <ConnectProviderModal
-          open={showConnectModal}
-          provider={selectedProvider}
-          onClose={() => {
-            setShowConnectModal(false);
-            setSelectedProvider(null);
-          }}
-          onSuccess={handleConnectSuccess}
-        />
-      )}
-
       <div className="ml-[80px] px-8 py-6">
         <div className="max-w-[1360px] mx-auto">
           {/* Page Header */}
@@ -244,14 +297,20 @@ export default function OverviewClient({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  aria-label="Disconnect n8n"
-                  title="Disconnect integration"
-                  className="w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors"
+                  aria-label="Disconnect integrations"
+                  title="Disconnect integrations"
+                  className="w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors disabled:opacity-60"
+                  disabled={deleteIntegrationIds.length === 0}
                   onClick={async () => {
+                    if (deleteIntegrationIds.length === 0) return;
                     try {
-                      await fetch("/api/integrations/n8n", {
-                        method: "DELETE",
-                      });
+                      await Promise.all(
+                        deleteIntegrationIds.map((id) =>
+                          fetch(`/api/integrations/${id}`, {
+                            method: "DELETE",
+                          }),
+                        ),
+                      );
                       router.refresh();
                     } catch {
                       // Ignore errors for this testing-only control.
@@ -296,6 +355,10 @@ export default function OverviewClient({
                     />
                   </svg>
                 </button>
+
+                {resyncIntegrationIds.length > 0 && (
+                  <ResyncAllButton integrationIds={resyncIntegrationIds} />
+                )}
 
                 {/* Data source segmented control */}
                 <div className="inline-flex w-fit items-center gap-2 rounded-full border border-gray-200 bg-white/70 px-1 py-1 text-[11px] font-medium shadow-sm">
@@ -369,7 +432,7 @@ export default function OverviewClient({
                 statusFilter={statusFilter}
                 onStatusFilterChange={setStatusFilter}
                 statusCounts={{
-                  total: enriched.length,
+                  total: providerFiltered.length,
                   ok: okCount,
                   broken: brokenCountAll,
                   inactive: inactiveCountAll,

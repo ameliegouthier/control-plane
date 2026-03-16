@@ -7,6 +7,7 @@ import {
   getAllWorkflowsFromDatabase,
   getAllWorkflowsFromDatabaseAsRaw,
 } from "@/lib/repositories/workflowsRepository";
+import { getIntegrationsForOverview } from "@/lib/repositories/integrationsRepository";
 
 export const dynamic = "force-dynamic";
 
@@ -20,17 +21,31 @@ export default async function OverviewPage() {
       ? cookieValue === "true"
       : envDefault;
 
-  const [workflows, rawWorkflows] = demoMode
-    ? [getAllWorkflows(), getAllWorkflowsAsRaw()]
+  const [workflows, rawWorkflows, integrations] = demoMode
+    ? [
+        getAllWorkflows(),
+        getAllWorkflowsAsRaw(),
+        [] as { id: string; provider: string }[],
+      ]
     : await Promise.all([
         getAllWorkflowsFromDatabase(),
         getAllWorkflowsFromDatabaseAsRaw(),
+        getIntegrationsForOverview(),
       ]);
+
+  const integrationIdsForSync = integrations.map((i) => i.id);
 
   const OverviewClientTyped = OverviewClient as unknown as (
     props: OverviewClientProps,
   ) => JSX.Element;
 
-  return <OverviewClientTyped rawWorkflows={rawWorkflows} workflows={workflows} initialDemoMode={demoMode} />;
+  return (
+    <OverviewClientTyped
+      rawWorkflows={rawWorkflows}
+      workflows={workflows}
+      initialDemoMode={demoMode}
+      integrationIdsForSync={integrationIdsForSync}
+    />
+  );
 }
 

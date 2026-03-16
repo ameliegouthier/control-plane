@@ -28,7 +28,8 @@ vi.mock("@/lib/demo-user", () => ({
 
 vi.mock("@/app/workflow-helpers", () => ({
   toWorkflow: vi.fn((wf: DbWorkflow) => ({
-    id: (wf.config as Record<string, unknown>)?.externalId ?? wf.id,
+    id: wf.id,
+    externalId: (wf.config as Record<string, unknown>)?.externalId,
     name: wf.name,
     provider: (wf.config as Record<string, unknown>)?.provider ?? "n8n",
     active: wf.status === "active",

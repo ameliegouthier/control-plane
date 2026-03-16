@@ -5,8 +5,12 @@
  * Uses Make API v2: organizations → organizationId → scenarios.
  */
 
+import fs from "fs/promises";
+import path from "path";
+
 import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
+import { makeApiFetch } from "./make-client";
 import type {
   ProviderAdapter,
   ProviderConnection,
@@ -18,9 +22,17 @@ import type {
   WorkflowGraphEdge,
   RawProviderWorkflow,
 } from "./types";
+import { syncWorkflowNodes } from "./sync-workflow-nodes";
+import {
+  normalizeMakeFlowItem,
+  makeModuleToService,
+  buildMakeLinearEdges,
+  buildGraph,
+  type NormalizedNode,
+} from "./normalize-workflow";
 
-// Make API v2 base URL (EU1). Config can override via baseUrl.
-const MAKE_API_BASE_DEFAULT = "https://eu1.make.com/api/v2";
+// Make API v2 base URL (EU2). Config can override via baseUrl.
+const MAKE_API_BASE_DEFAULT = "https://eu2.make.com/api/v2";
 
 // ─── Make-specific types ──────────────────────────────────────────────────────
 
@@ -33,6 +45,29 @@ interface MakeNode {
   [key: string]: unknown;
 }
 
+interface MakeFlowItem {
+  id?: string | number;
+  module?: string;
+  version?: string;
+  metadata?: {
+    designer?: {
+      name?: string;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  /**
+   * Some Make modules expose nested "tools" which each contain their own flow of modules.
+   * These nested flow items should also be treated as graph nodes.
+   */
+  tools?: Array<{
+    name?: string;
+    flow?: MakeFlowItem[];
+    [key: string]: unknown;
+  }>;
+  [key: string]: unknown;
+}
+
 interface MakeWorkflow {
   id: string | number;
   name: string;
@@ -40,6 +75,8 @@ interface MakeWorkflow {
   active?: boolean;
   modules?: MakeNode[];
   connections?: Record<string, unknown>;
+  /** New Make structure: linear flow of modules, each item is a node. */
+  flow?: MakeFlowItem[];
   createdAt?: string;
   updatedAt?: string;
   [key: string]: unknown;
@@ -58,24 +95,39 @@ interface MakeScenariosResponse {
 export class MakeAdapter implements ProviderAdapter {
   readonly provider = "make" as const;
 
+  private isMockMode(): boolean {
+    const flag = process.env.MOCK_MAKE;
+    if (!flag) return false;
+    const normalized = flag.toString().trim().toLowerCase();
+    return normalized === "true" || normalized === "1" || normalized === "yes";
+  }
+
   /**
    * Resolve Make API base URL from connection config.
-   * The integration baseUrl must be the Make API base only (e.g. https://eu1.make.com/api/v2).
+   * The integration baseUrl must be the Make API base only (e.g. https://eu2.make.com/api/v2).
    * Endpoints such as /organizations and /scenarios are appended internally by the adapter.
    */
   private getBaseUrl(connection: ProviderConnection): string {
     const config = connection.config as Record<string, string | undefined>;
     const base = config?.baseUrl?.trim();
     if (!base) return MAKE_API_BASE_DEFAULT;
-    return base.replace(/\/+$/, "");
+
+    // Normalize:
+    // - strip trailing slashes
+    // - prevent users from accidentally appending endpoint segments like "/scenarios"
+    let normalized = base.replace(/\/+$/, "");
+    if (normalized.endsWith("/scenarios")) {
+      normalized = normalized.replace(/\/scenarios$/, "");
+    }
+    return normalized;
   }
 
   /**
-   * Resolve API token from connection config (apiToken or apiKey).
+   * Resolve API token from connection config (apiToken, apiKey, or token).
    */
   private getApiToken(connection: ProviderConnection): string | null {
     const config = connection.config as Record<string, string | undefined>;
-    const token = config?.apiToken ?? config?.apiKey;
+    const token = config?.apiToken ?? config?.apiKey ?? config?.token;
     return typeof token === "string" && token.trim() ? token.trim() : null;
   }
 
@@ -94,7 +146,10 @@ export class MakeAdapter implements ProviderAdapter {
       throw new Error("Make API token is required. Set apiToken or apiKey in connection config.");
     }
 
-    const url = path.startsWith("http") ? path : `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\//, "")}`;
+    const url = path.startsWith("http")
+      ? path
+      : `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\//, "")}`;
+
     const res = await fetch(url, {
       headers: {
         Accept: "application/json",
@@ -132,7 +187,8 @@ export class MakeAdapter implements ProviderAdapter {
       );
     }
 
-    return String(org.id);
+    const organizationId = String(org.id);
+    return organizationId;
   }
 
   /**
@@ -142,6 +198,21 @@ export class MakeAdapter implements ProviderAdapter {
   async fetchWorkflows(
     connection: ProviderConnection
   ): Promise<FetchWorkflowsResult> {
+    if (this.isMockMode()) {
+      try {
+        const mockWorkflows = await this.fetchMockWorkflows();
+        return mockWorkflows;
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : "Unknown error loading mock Make workflows";
+        return {
+          success: false,
+          workflows: [],
+          error: message,
+        };
+      }
+    }
+
     const token = this.getApiToken(connection);
     if (!token) {
       return {
@@ -153,12 +224,9 @@ export class MakeAdapter implements ProviderAdapter {
 
     try {
       const organizationId = await this.getOrganizationId(connection);
-      const res = await this.makeRequest<MakeScenariosResponse>(
-        connection,
-        `/scenarios?organizationId=${organizationId}`
-      );
+      const scenariosPath = `/scenarios?organizationId=${organizationId}`;
+      const res = await this.makeRequest<MakeScenariosResponse>(connection, scenariosPath);
       const scenarios = res?.scenarios ?? [];
-
       return {
         success: true,
         workflows: scenarios as RawProviderWorkflow[],
@@ -175,8 +243,100 @@ export class MakeAdapter implements ProviderAdapter {
   }
 
   /**
+   * Load Make workflows from local blueprint JSON files in mock mode.
+   * This bypasses the real Make API and lets us simulate scenarios until OAuth is available.
+   */
+  private async fetchMockWorkflows(): Promise<FetchWorkflowsResult> {
+    const mockDir = path.join(process.cwd(), "src", "lib", "mock", "make");
+
+    let entries: string[];
+    try {
+      entries = await fs.readdir(mockDir);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? `Failed to read mock Make directory at ${mockDir}: ${err.message}`
+          : `Failed to read mock Make directory at ${mockDir}`;
+      throw new Error(message);
+    }
+
+    const jsonFiles = entries.filter((file) => file.toLowerCase().endsWith(".json"));
+    const workflows: MakeWorkflow[] = [];
+
+    for (const file of jsonFiles) {
+      const fullPath = path.join(mockDir, file);
+      try {
+        const raw = await fs.readFile(fullPath, "utf8");
+        const parsed = JSON.parse(raw) as Partial<MakeWorkflow> & Record<string, unknown>;
+
+        const fileId = path.basename(file, path.extname(file));
+        const id = parsed.id ?? fileId;
+        const name = parsed.name ?? String(id);
+
+        const flow = Array.isArray(parsed.flow) ? parsed.flow : [];
+        const modules = Array.isArray(parsed.modules) ? parsed.modules : undefined;
+        const connections =
+          parsed.connections && typeof parsed.connections === "object"
+            ? (parsed.connections as Record<string, unknown>)
+            : undefined;
+
+        const workflow: MakeWorkflow = {
+          id,
+          name,
+          enabled: (parsed as any).enabled,
+          active: (parsed as any).active,
+          modules,
+          connections,
+          flow,
+          createdAt: (parsed as any).createdAt as string | undefined,
+          updatedAt: (parsed as any).updatedAt as string | undefined,
+        };
+
+        workflows.push(workflow);
+      } catch {
+        // Skip invalid mock blueprint file
+      }
+    }
+
+    return {
+      success: true,
+      workflows: workflows as RawProviderWorkflow[],
+    };
+  }
+
+  /**
+   * Recursively extract all flow items from a Make workflow, including
+   * modules nested inside agent tools (tools[].flow).
+   */
+  private extractModules(flow: MakeFlowItem[] | undefined): MakeFlowItem[] {
+    if (!Array.isArray(flow) || flow.length === 0) return [];
+
+    const result: MakeFlowItem[] = [];
+
+    const visit = (items: MakeFlowItem[]) => {
+      for (const step of items) {
+        result.push(step);
+
+        if (Array.isArray(step.tools)) {
+          for (const tool of step.tools) {
+            if (Array.isArray(tool.flow) && tool.flow.length > 0) {
+              visit(tool.flow);
+            }
+          }
+        }
+      }
+    };
+
+    visit(flow);
+    return result;
+  }
+
+  /**
    * Normalize a Make workflow into the generic Workflow model.
-   * Maps Make-specific structure to provider-agnostic Workflow format.
+   * Uses the shared normalization layer so Make and n8n produce the same
+   * normalized node shape (id, label, service, action?, kind, type).
+   * Make flow items use module "service:action"; first step is trigger, rest action.
+   * Legacy path (modules + connections) is supported when flow is absent.
    */
   normalizeWorkflow(
     raw: RawProviderWorkflow,
@@ -188,79 +348,28 @@ export class MakeAdapter implements ProviderAdapter {
       return null;
     }
 
-    // Make uses "modules" instead of "nodes", and "enabled" instead of "active"
-    const rawModules = makeWorkflow.modules ?? [];
-    const graphNodes: WorkflowGraphNode[] = rawModules.map((m, index) => {
-      const moduleId = m.id ?? `module_${index}`;
-      const moduleName = m.name ?? `Module ${index}`;
-      const moduleType = m.type ?? "unknown";
-      const typeLower = moduleType.toLowerCase();
-      
-      // Determine node kind based on type
-      let kind: "trigger" | "action" | "router" | "other" = "other";
-      if (typeLower.includes("trigger") || typeLower.includes("webhook")) {
-        kind = "trigger";
-      } else if (typeLower.includes("router") || typeLower.includes("filter")) {
-        kind = "router";
-      } else if (!typeLower.includes("trigger")) {
-        kind = "action";
-      }
+    // Flatten flow + any nested tool flows so that actions executed inside
+    // agent tools (ai-local-agent, etc.) are also represented as graph nodes.
+    const rawFlow = this.extractModules(makeWorkflow.flow);
+    let graph: WorkflowGraph;
 
-      return {
-        id: moduleId,
-        label: moduleName,
-        kind,
-        type: moduleType,
-      };
-    });
-
-    // Normalize connections to WorkflowGraph edges
-    // Create mapping from node name to node ID
-    const nameToId = new Map<string, string>();
-    for (const node of graphNodes) {
-      // Find the original module by matching label to name
-      const originalModule = rawModules.find((m) => (m.name ?? "") === node.label);
-      if (originalModule) {
-        const originalName = originalModule.name ?? "";
-        nameToId.set(originalName, node.id);
-      }
+    if (Array.isArray(rawFlow) && rawFlow.length > 0) {
+      const normalizedNodes: NormalizedNode[] = rawFlow.map((item, index) =>
+        normalizeMakeFlowItem(item, index)
+      );
+      const nodeIds = normalizedNodes.map((n) => n.id);
+      const edges = buildMakeLinearEdges(nodeIds);
+      graph = buildGraph(normalizedNodes, edges);
+    } else {
+      graph = this.normalizeMakeLegacyGraph(makeWorkflow);
     }
 
-    const edges: WorkflowGraphEdge[] = [];
-    const connections = makeWorkflow.connections as Record<string, {
-      main?: Array<Array<{ node: string; type: string; index: number }>>;
-    }> | undefined;
-
-    if (connections) {
-      for (const [sourceNodeName, conn] of Object.entries(connections)) {
-        const sourceId = nameToId.get(sourceNodeName);
-        if (!sourceId) continue;
-        
-        const mainConnections = conn.main ?? [];
-        for (const slot of mainConnections) {
-          for (const edge of slot) {
-            const targetId = nameToId.get(edge.node);
-            if (targetId) {
-              edges.push({
-                from: sourceId,
-                to: targetId,
-              });
-            }
-          }
-        }
-      }
-    }
-
-    const graph: WorkflowGraph = {
-      nodes: graphNodes,
-      edges,
-    };
-
-    // Make uses "enabled" field, normalize to "active"
     const active = makeWorkflow.active ?? makeWorkflow.enabled ?? false;
+    const providerWorkflowId = String(makeWorkflow.id);
 
     return {
-      id: String(makeWorkflow.id),
+      id: providerWorkflowId, // Sync uses this only to fill config.externalId; UI gets DB id from repository
+      externalId: providerWorkflowId,
       name: makeWorkflow.name,
       active,
       provider: "make",
@@ -272,12 +381,67 @@ export class MakeAdapter implements ProviderAdapter {
   }
 
   /**
+   * Legacy Make format: modules[] + connections. Produces the same normalized
+   * node shape (provider, service, operation from type "service:action").
+   */
+  private normalizeMakeLegacyGraph(makeWorkflow: MakeWorkflow): WorkflowGraph {
+    const rawModules = makeWorkflow.modules ?? [];
+    const normalizedNodes: NormalizedNode[] = rawModules.map((m, index) => {
+      const moduleType = m.type ?? "unknown";
+      const provider = "make" as const;
+      const service = makeModuleToService(moduleType);
+      const operation = moduleType.includes(":") ? (moduleType.split(":")[1] ?? "execute") : "execute";
+      const action = operation;
+      const typeLower = moduleType.toLowerCase();
+      const kind: "trigger" | "action" | "router" =
+        index === 0 ? "trigger" : typeLower.includes("router") || typeLower.includes("filter") ? "router" : "action";
+      const category: NormalizedNode["category"] = kind === "trigger" ? "trigger" : "write";
+      return {
+        id: String(m.id ?? `module_${index}`),
+        label: m.name ?? moduleType,
+        provider,
+        service,
+        action,
+        operation,
+        category,
+        kind,
+        type: moduleType,
+      };
+    });
+
+    const nameToId = new Map<string, string>();
+    for (const node of normalizedNodes) {
+      nameToId.set(node.label, node.id);
+    }
+
+    const edges: WorkflowGraphEdge[] = [];
+    const connections = makeWorkflow.connections as
+      | Record<string, { main?: Array<Array<{ node: string; type: string; index: number }>> }>
+      | undefined;
+    if (connections) {
+      for (const [sourceNodeName, conn] of Object.entries(connections)) {
+        const sourceId = nameToId.get(sourceNodeName);
+        if (!sourceId) continue;
+        for (const slot of conn.main ?? []) {
+          for (const edge of slot) {
+            const targetId = nameToId.get(edge.node);
+            if (targetId) edges.push({ from: sourceId, to: targetId });
+          }
+        }
+      }
+    }
+
+    return buildGraph(normalizedNodes, edges);
+  }
+
+  /**
    * Sync workflows from Make to the database.
    * Fetches scenarios via API, normalizes, and upserts to DB.
    */
   async syncWorkflows(
     connection: ProviderConnection
   ): Promise<SyncWorkflowsResult> {
+    const db = prisma as any;
     const fetchResult = await this.fetchWorkflows(connection);
 
     if (!fetchResult.success) {
@@ -344,12 +508,14 @@ export class MakeAdapter implements ProviderAdapter {
         const integrationId = connection.id;
         const workflowConfig = {
           provider: normalized.provider,
-          externalId: normalized.id,
+          externalId: normalized.externalId ?? normalized.id,
           actions,
           triggerConfig,
+          // Debug snapshot of original Make workflow / blueprint
+          rawProviderWorkflow: rawWf,
         } as Prisma.InputJsonValue;
 
-        const existing = await prisma.workflow.findFirst({
+        const existing = await db.workflow.findFirst({
           where: { integrationId, name: normalized.name },
         });
 
@@ -360,25 +526,29 @@ export class MakeAdapter implements ProviderAdapter {
           config: workflowConfig,
         };
 
+        let workflowId: string;
         if (existing) {
-          await prisma.workflow.update({
+          await db.workflow.update({
             where: { id: existing.id },
             data: workflowData,
           });
+          workflowId = existing.id;
         } else {
-          await prisma.workflow.create({
+          const created = await db.workflow.create({
             data: {
               userId: connection.userId,
               integrationId,
               ...workflowData,
             },
           });
+          workflowId = created.id;
         }
 
+        await syncWorkflowNodes(workflowId, normalized.graph);
         synced++;
       }
 
-      await prisma.integration.update({
+      await db.integration.update({
         where: { id: connection.id },
         data: { updatedAt: new Date() },
       });
@@ -407,7 +577,8 @@ export class MakeAdapter implements ProviderAdapter {
     workflowsCount: number,
     errorMessage: string | null
   ): Promise<void> {
-    await prisma.syncLog.create({
+    const db = prisma as any;
+    await db.syncLog.create({
       data: {
         integrationId,
         userId,
@@ -418,3 +589,120 @@ export class MakeAdapter implements ProviderAdapter {
     });
   }
 }
+
+// ─── High-level helpers for OAuth-based Make usage ─────────────────────────────
+
+export interface MakeScenarioSummary {
+  id: string;
+  name: string;
+  [key: string]: unknown;
+}
+
+export interface NormalizedMakeScenarioBlueprintNode {
+  module: string;
+  service: string;
+}
+
+export interface NormalizedMakeScenarioBlueprint {
+  provider: "make";
+  externalId: string;
+  name: string;
+  nodes: NormalizedMakeScenarioBlueprintNode[];
+  usedServices: string[];
+  rawBlueprint: unknown;
+}
+
+/**
+ * List Make scenarios for the current user using OAuth-based access.
+ */
+export async function listMakeScenarios(
+  userId: string,
+): Promise<MakeScenarioSummary[]> {
+  type ScenariosResponse = { scenarios?: Array<{ id: string | number; name?: string } & Record<string, unknown>> };
+
+  const res = await makeApiFetch<ScenariosResponse>(userId, "/scenarios");
+  const scenarios = Array.isArray(res.scenarios) ? res.scenarios : [];
+
+  return scenarios.map((s) => {
+    const { id, name, ...rest } = s;
+    return {
+      id: String(id),
+      name: name ?? `Scenario ${String(id)}`,
+      ...rest,
+    };
+  });
+}
+
+/**
+ * Fetch and normalize a single Make scenario blueprint into a compact structure
+ * that surfaces module usage and services while still exposing the raw blueprint.
+ */
+export async function getMakeScenarioBlueprint(
+  userId: string,
+  scenarioId: string | number,
+): Promise<NormalizedMakeScenarioBlueprint> {
+  type BlueprintResponse = {
+    id?: string | number;
+    name?: string;
+    flow?: Array<{ module?: string } & Record<string, unknown>>;
+    [key: string]: unknown;
+  };
+
+  const blueprint = await makeApiFetch<BlueprintResponse>(
+    userId,
+    `/scenarios/${encodeURIComponent(String(scenarioId))}/blueprint`,
+  );
+
+  const externalId = String(blueprint.id ?? scenarioId);
+  const name = blueprint.name ?? `Scenario ${externalId}`;
+  const flow = Array.isArray(blueprint.flow) ? blueprint.flow : [];
+
+  const nodes: NormalizedMakeScenarioBlueprintNode[] = flow
+    .map((node) => {
+      const module = typeof node.module === "string" ? node.module : "";
+      if (!module) return null;
+      const service = makeModuleToService(module);
+      return {
+        module,
+        service,
+      };
+    })
+    .filter((n): n is NormalizedMakeScenarioBlueprintNode => Boolean(n));
+
+  const usedServices = Array.from(
+    new Set(nodes.map((n) => n.service).filter(Boolean)),
+  );
+
+  return {
+    provider: "make",
+    externalId,
+    name,
+    nodes,
+    usedServices,
+    rawBlueprint: blueprint,
+  };
+}
+
+/**
+ * Convenience helper to fetch and normalize all Make workflows for a user.
+ * Intended for the /api/integrations/make/sync endpoint – it does not mutate
+ * the database and only returns structured JSON.
+ */
+export async function syncMakeWorkflows(userId: string): Promise<{
+  workflows: NormalizedMakeScenarioBlueprint[];
+}> {
+  const scenarios = await listMakeScenarios(userId);
+
+  const workflows: NormalizedMakeScenarioBlueprint[] = [];
+  for (const scenario of scenarios) {
+    try {
+      const normalized = await getMakeScenarioBlueprint(userId, scenario.id);
+      workflows.push(normalized);
+    } catch {
+      // Skip scenario if blueprint fetch fails
+    }
+  }
+
+  return { workflows };
+}
+
