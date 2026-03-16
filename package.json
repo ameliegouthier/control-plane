@@ -22,6 +22,8 @@
   },
   "dependencies": {
     "@prisma/client": "^6.19.2",
+    "@xyflow/react": "^12.10.1",
+    "dagre": "^0.8.5",
     "next": "16.1.6",
     "openai": "^6.28.0",
     "react": "19.2.3",

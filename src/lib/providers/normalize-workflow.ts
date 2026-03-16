@@ -12,7 +12,7 @@
  *   SECTION 3 · Enrichment (domain, output, systems, health)
  */
 
-import type { WorkflowGraphNode, WorkflowGraphEdge, WorkflowGraph, NodeCategory } from "./types";
+import type { WorkflowGraphNode, WorkflowGraphEdge, WorkflowGraph, NodeCategory, AgentToolMeta } from "./types";
 import { extractNotionDatabaseId } from "./notion-resources";
 
 // ─── Service name normalization (provider-agnostic) ─────────────────────────────
@@ -66,6 +66,8 @@ export interface NormalizedNode {
   databaseId?: string;
   /** Slack channel when type contains "slack". */
   channelId?: string;
+  /** Present when this node was extracted from an AI agent's tool flow. */
+  meta?: AgentToolMeta;
 }
 
 /**
@@ -88,6 +90,7 @@ export function buildGraph(
     ...(n.action != null && { action: n.action }),
     ...(n.databaseId != null && { databaseId: n.databaseId }),
     ...(n.channelId != null && { channelId: n.channelId }),
+    ...(n.meta != null && { meta: n.meta }),
   }));
   return { nodes: graphNodes, edges };
 }

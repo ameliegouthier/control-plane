@@ -41,6 +41,17 @@ export interface WorkflowCore {
 export type NodeCategory = "trigger" | "read" | "write" | "notify" | "ai" | "transform";
 
 /**
+ * Metadata attached to nodes that originate from an AI agent's tool flow.
+ * Preserves the agent–tool relationship after flattening without altering
+ * node id, type, or edge logic.
+ */
+export interface AgentToolMeta {
+  isAgentTool: true;
+  parentAgentId: string;
+  toolName: string;
+}
+
+/**
  * Provider-agnostic graph node representation.
  * Normalized from provider-specific node formats.
  * Optional resource fields for nodes that interact with external services (Notion, Slack, etc.).
@@ -64,6 +75,8 @@ export interface WorkflowGraphNode {
   databaseId?: string;
   /** Slack channel ID or channel name (when type contains "slack"), from parameters.channel. */
   channelId?: string;
+  /** Present when this node was extracted from an AI agent's tool flow. */
+  meta?: AgentToolMeta;
 }
 
 /**

@@ -23,6 +23,7 @@ import type {
   RawProviderWorkflow,
 } from "./types";
 import { syncWorkflowNodes } from "./sync-workflow-nodes";
+import type { AgentToolMeta } from "./types";
 import {
   normalizeMakeFlowItem,
   makeModuleToService,
@@ -307,20 +308,34 @@ export class MakeAdapter implements ProviderAdapter {
   /**
    * Recursively extract all flow items from a Make workflow, including
    * modules nested inside agent tools (tools[].flow).
+   *
+   * Each returned entry pairs a flow item with optional agent-tool metadata
+   * so that the caller can tag normalized nodes without altering ids or edges.
    */
-  private extractModules(flow: MakeFlowItem[] | undefined): MakeFlowItem[] {
+  private extractModules(
+    flow: MakeFlowItem[] | undefined,
+  ): Array<{ item: MakeFlowItem; agentToolMeta?: AgentToolMeta }> {
     if (!Array.isArray(flow) || flow.length === 0) return [];
 
-    const result: MakeFlowItem[] = [];
+    const result: Array<{ item: MakeFlowItem; agentToolMeta?: AgentToolMeta }> = [];
 
-    const visit = (items: MakeFlowItem[]) => {
+    const visit = (
+      items: MakeFlowItem[],
+      agentToolMeta?: AgentToolMeta,
+    ) => {
       for (const step of items) {
-        result.push(step);
+        result.push({ item: step, agentToolMeta });
 
         if (Array.isArray(step.tools)) {
+          const parentAgentId = String(step.id ?? "");
           for (const tool of step.tools) {
             if (Array.isArray(tool.flow) && tool.flow.length > 0) {
-              visit(tool.flow);
+              const toolMeta: AgentToolMeta = {
+                isAgentTool: true,
+                parentAgentId,
+                toolName: tool.name ?? "Unknown Tool",
+              };
+              visit(tool.flow, toolMeta);
             }
           }
         }
@@ -350,15 +365,44 @@ export class MakeAdapter implements ProviderAdapter {
 
     // Flatten flow + any nested tool flows so that actions executed inside
     // agent tools (ai-local-agent, etc.) are also represented as graph nodes.
-    const rawFlow = this.extractModules(makeWorkflow.flow);
+    const extracted = this.extractModules(makeWorkflow.flow);
     let graph: WorkflowGraph;
 
-    if (Array.isArray(rawFlow) && rawFlow.length > 0) {
-      const normalizedNodes: NormalizedNode[] = rawFlow.map((item, index) =>
-        normalizeMakeFlowItem(item, index)
+    if (extracted.length > 0) {
+      const normalizedNodes: NormalizedNode[] = extracted.map(({ item, agentToolMeta }, index) => {
+        const node = normalizeMakeFlowItem(item, index);
+        if (agentToolMeta) {
+          node.meta = agentToolMeta;
+        }
+        return node;
+      });
+      const edges: WorkflowGraphEdge[] = [];
+      for (let i = 0; i < normalizedNodes.length; i++) {
+        const node = normalizedNodes[i];
+
+        if (node.meta?.isAgentTool) {
+          edges.push({
+            from: node.meta.parentAgentId,
+            to: node.id,
+          });
+          continue;
+        }
+
+        const next = normalizedNodes[i + 1];
+
+        if (next && !next.meta?.isAgentTool) {
+          edges.push({
+            from: node.id,
+            to: next.id,
+          });
+        }
+      }
+
+      console.log(
+        "ADAPTER EDGES",
+        edges.map((e) => `${e.from} → ${e.to}`)
       );
-      const nodeIds = normalizedNodes.map((n) => n.id);
-      const edges = buildMakeLinearEdges(nodeIds);
+
       graph = buildGraph(normalizedNodes, edges);
     } else {
       graph = this.normalizeMakeLegacyGraph(makeWorkflow);

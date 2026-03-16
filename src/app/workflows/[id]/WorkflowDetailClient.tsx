@@ -14,6 +14,7 @@ import {
   generateDraftIntent,
 } from "@/lib/intent";
 import { useProviderFilter } from "@/hooks/useProviderFilter";
+import { WorkflowGraphReactFlow } from "@/components/workflows/WorkflowGraphReactFlow";
 
 export type WorkflowDetailClientProps = {
   workflow: Workflow | null;
@@ -831,16 +832,21 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
                 <div className="flex-1 h-px bg-gray-100" />
               </div>
               <div
-                className="bg-white rounded-xl w-full"
+                className="bg-white rounded-xl w-full h-fit"
                 style={{ border: "1px solid rgba(0,0,0,0.07)" }}
               >
-                <div className="overflow-x-auto w-full">
+                <div className="overflow-x-auto w-full h-fit">
+                  {/* Original linear/branched graph preview kept for easy restore:
                   <div className="min-w-max px-32 py-12">
                     {hasBranches ? (
                       <WorkflowGraphPreview nodes={detailGraph.nodes} branches={detailGraph.branches} />
                     ) : (
                       <WorkflowGraphPreviewLinear nodes={detailGraph.nodes} />
                     )}
+                  </div>
+                  */}
+                  <div className="min-w-max px-8 py-6 h-fit">
+                    <WorkflowGraphReactFlow workflow={workflow} />
                   </div>
                 </div>
               </div>
