@@ -232,7 +232,9 @@ export default function SystemMap({ workflows }: SystemMapProps) {
               {/* Workflow list */}
               <div className="px-5 pb-5">
                 {list.map((wf, index) => {
-                  const displayText = (wf.aiSummary?.trim().replace(/\.$/, "") ?? wf.name);
+                  const matchingNode = wf.graph?.nodes.find((n) => n.service === service);
+                  const rawSummary = matchingNode?.aiSummary ?? wf.aiSummary;
+                  const displayText = rawSummary?.trim().replace(/\.$/, "") ?? wf.name;
                   const isLast = index === list.length - 1;
                   return (
                     <div

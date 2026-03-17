@@ -56,7 +56,7 @@ export default async function DestinationPage({ params }: PageProps) {
         workflowName: wf.name,
         workflowProvider: wf.provider,
         workflowActive: wf.active,
-        workflowAiSummary: wf.aiSummary ?? null,
+        workflowAiSummary: node.aiSummary ?? wf.aiSummary ?? null,
         problemSolved: generateDraftIntent(wf).problemSolved,
         nodeId: node.id,
         service: serviceRaw,
