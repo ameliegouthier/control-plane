@@ -153,6 +153,7 @@ export function toWorkflow(db: DbWorkflow): Workflow {
     graph,
     updatedAt: db.updatedAt.toISOString(),
     createdAt: db.createdAt.toISOString(),
+    aiSummary: (db as { aiSummary?: string | null }).aiSummary ?? null,
   };
 }
 

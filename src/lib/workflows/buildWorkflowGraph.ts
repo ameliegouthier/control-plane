@@ -5,6 +5,8 @@ export type ReactFlowNode = {
     label: string;
     node: unknown;
     service?: string;
+    operation?: string;
+    aiSummary?: string | null;
   };
 };
 
@@ -145,12 +147,18 @@ export function buildWorkflowGraph(workflow: NormalizedWorkflowLike): {
                 ? "output"
                 : "action";
 
+      const gn = node as { operation?: string; action?: string; aiSummary?: string | null };
+      const operation = gn.operation ?? gn.action ?? undefined;
+      const aiSummary = gn.aiSummary ?? null;
+
       return {
         id: node.id,
         type: rfType,
         data: {
           label: (node.label ?? node.name ?? node.id) as string,
           service: resolveServiceLabel(node),
+          operation,
+          aiSummary,
           node,
         },
       };

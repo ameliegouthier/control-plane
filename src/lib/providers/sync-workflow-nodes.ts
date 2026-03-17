@@ -9,19 +9,28 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import type { WorkflowGraph, WorkflowGraphNode } from "./types";
 
+export type SyncedWorkflowNode = {
+  id: string;
+  type: string;
+  name: string | null;
+  config: unknown;
+  aiSummary: string | null;
+};
+
 /**
  * Sync nodes from a workflow graph to the WorkflowNode table.
  * - Deletes all existing WorkflowNode rows for the given workflowId.
  * - Creates one row per node with: workflowId, type, name (label), position, config (externalId, kind).
+ * - Returns the created nodes (fetched after createMany to expose their DB ids).
  */
 export async function syncWorkflowNodes(
   workflowId: string,
   graph: WorkflowGraph | undefined
-): Promise<number> {
+): Promise<SyncedWorkflowNode[]> {
   const nodes = graph?.nodes ?? [];
   if (nodes.length === 0) {
     await prisma.workflowNode.deleteMany({ where: { workflowId } });
-    return 0;
+    return [];
   }
 
   await prisma.workflowNode.deleteMany({ where: { workflowId } });
@@ -46,9 +55,11 @@ export async function syncWorkflowNodes(
     })
   );
 
-  const result = await prisma.workflowNode.createMany({
-    data: createData,
-  });
+  await prisma.workflowNode.createMany({ data: createData });
 
-  return result.count;
+  return prisma.workflowNode.findMany({
+    where: { workflowId },
+    orderBy: { position: "asc" },
+    select: { id: true, type: true, name: true, config: true, aiSummary: true },
+  });
 }

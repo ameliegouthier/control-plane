@@ -97,6 +97,7 @@ function dbWorkflowToRawWorkflow(wf: Workflow): RawWorkflow {
     nodes,
     triggerType,
     hasPublicWebhook,
+    aiSummary: wf.aiSummary ?? null,
   };
 }
 
@@ -142,10 +143,28 @@ export async function getAllWorkflowsFromDatabase(): Promise<Workflow[]> {
   const user = await getDemoUser();
   const dbWorkflows = await prisma.workflow.findMany({
     where: { userId: user.id },
-    include: { integration: true },
+    include: { integration: true, workflowNodes: true },
     orderBy: { updatedAt: "desc" },
   });
-  return dbWorkflows.map(toWorkflow);
+  return dbWorkflows.map((dbWf) => {
+    const workflow = toWorkflow(dbWf);
+    if (workflow.graph && dbWf.workflowNodes.length > 0) {
+      const summaryByExternalId = new Map<string, string | null>(
+        dbWf.workflowNodes.map((n) => [
+          (n.config as Record<string, unknown> | null)?.externalId as string | undefined ?? "",
+          n.aiSummary,
+        ])
+      );
+      workflow.graph = {
+        ...workflow.graph,
+        nodes: workflow.graph.nodes.map((n) => ({
+          ...n,
+          aiSummary: summaryByExternalId.get(n.id) ?? null,
+        })),
+      };
+    }
+    return workflow;
+  });
 }
 
 /**

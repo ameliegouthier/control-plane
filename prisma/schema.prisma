@@ -50,6 +50,7 @@ model Workflow {
   status        String?
   triggerType   String?
   config        Json?
+  aiSummary     String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   workflowNodes WorkflowNode[]
@@ -67,6 +68,7 @@ model WorkflowNode {
   name               String?
   position           Int?
   config             Json?
+  aiSummary          String?
   externalResourceId String?
   externalResource   ExternalResource? @relation(fields: [externalResourceId], references: [id], onDelete: SetNull)
   createdAt          DateTime          @default(now())

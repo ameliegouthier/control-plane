@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { getAllWorkflows, getAllWorkflowsFromDatabase } from "@/lib/repositories/workflowsRepository";
 import { getDestinationBySlug } from "@/app/data/destinations";
 import type { Workflow } from "@/app/workflow-helpers";
+import { generateDraftIntent } from "@/lib/intent";
 import DestinationClient, { type DestinationMutation } from "./DestinationClient";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,9 @@ export default async function DestinationPage({ params }: PageProps) {
         workflowId: wf.id,
         workflowName: wf.name,
         workflowProvider: wf.provider,
+        workflowActive: wf.active,
+        workflowAiSummary: wf.aiSummary ?? null,
+        problemSolved: generateDraftIntent(wf).problemSolved,
         nodeId: node.id,
         service: serviceRaw,
         action: node.action ?? node.operation ?? "",

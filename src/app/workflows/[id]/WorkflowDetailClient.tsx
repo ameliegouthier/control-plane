@@ -15,70 +15,13 @@ import {
 } from "@/lib/intent";
 import { useProviderFilter } from "@/hooks/useProviderFilter";
 import { WorkflowGraphReactFlow } from "@/components/workflows/WorkflowGraphReactFlow";
+import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, AlertTriangleIcon, ZapIcon, ArrowLeftIcon, GitBranchIcon } from "@/components/ui";
 
 export type WorkflowDetailClientProps = {
   workflow: Workflow | null;
   workflowId: string;
 };
 
-// ─── Icons (inline SVG, no external deps) ─────────────────────────────────────
-
-function ChevronLeft({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M15 18l-6-6 6-6" />
-    </svg>
-  );
-}
-function ChevronRight({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 18l6-6-6-6" />
-    </svg>
-  );
-}
-function ChevronDown({ className, style }: { className?: string; style?: React.CSSProperties }) {
-  return (
-    <svg className={className} style={style} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  );
-}
-function AlertTriangle({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-      <line x1="12" y1="9" x2="12" y2="13" />
-      <line x1="12" y1="17" x2="12.01" y2="17" />
-    </svg>
-  );
-}
-function Zap({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-    </svg>
-  );
-}
-function ArrowLeft({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M19 12H5M12 19l-7-7 7-7" />
-    </svg>
-  );
-}
-function GitBranch({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="6" y1="3" x2="6" y2="15" />
-      <circle cx="6" cy="18" r="3" />
-      <path d="M6 9a3 3 0 0 1 3-3 3 3 0 0 1 3 3" />
-      <circle cx="18" cy="6" r="3" />
-      <path d="M18 9v9" />
-      <path d="M6 12h8" />
-    </svg>
-  );
-}
 
 // ─── Optimization (carousel) ─────────────────────────────────────────────────
 
@@ -139,9 +82,9 @@ function OptimizationCard({
     >
       <div className="flex items-start gap-2 mb-3">
         {item.icon === "warning" ? (
-          <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+          <AlertTriangleIcon className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
         ) : (
-          <Zap className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+          <ZapIcon className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
         )}
         <div>
           <div className="text-[14px] text-gray-900" style={{ lineHeight: 1.4 }}>
@@ -530,7 +473,7 @@ function WorkflowGraphPreview({
         <div className={`flex items-center mt-2 px-2 w-full ${hasBranches ? "justify-between" : "justify-end"}`}>
           {hasBranches && (
             <div className="flex items-center gap-1.5 text-gray-400">
-              <GitBranch className="w-3 h-3" />
+              <GitBranchIcon className="w-3 h-3" />
               <span className="text-[10px]">Conditional branching</span>
             </div>
           )}
@@ -690,7 +633,7 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
                 href="/overview"
                 className="mt-4 flex items-center gap-1.5 text-[13px] text-gray-400 hover:text-gray-600 transition-colors"
               >
-                <ArrowLeft className="w-3.5 h-3.5" />
+                <ArrowLeftIcon className="w-3.5 h-3.5" />
                 Back to Overview
               </Link>
             </div>
@@ -722,7 +665,7 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
             href="/overview"
             className="flex items-center gap-1.5 text-[13px] text-gray-400 hover:text-gray-600 transition-colors mb-5"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
+            <ArrowLeftIcon className="w-3.5 h-3.5" />
             Back to dashboard
           </Link>
 
@@ -766,7 +709,7 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
                     style={{ border: "1px solid rgba(0,0,0,0.1)", opacity: canPrev ? 1 : 0.3 }}
                     disabled={!canPrev}
                   >
-                    <ChevronLeft className="w-4 h-4 text-gray-500" />
+                    <ChevronLeftIcon className="w-4 h-4 text-gray-500" />
                   </button>
                   <button
                     type="button"
@@ -775,7 +718,7 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
                     style={{ border: "1px solid rgba(0,0,0,0.1)", opacity: canNext ? 1 : 0.3 }}
                     disabled={!canNext}
                   >
-                    <ChevronRight className="w-4 h-4 text-gray-500" />
+                    <ChevronRightIcon className="w-4 h-4 text-gray-500" />
                   </button>
                 </div>
               </div>
@@ -913,7 +856,7 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
                   <span className="text-[11px] text-gray-400">
                     {intentExpanded ? "Hide details" : "Show details"}
                   </span>
-                  <ChevronDown
+                  <ChevronDownIcon
                     className="w-3 h-3 text-gray-400 transition-transform duration-200"
                     style={{ transform: intentExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
                   />

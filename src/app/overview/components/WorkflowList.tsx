@@ -1,4 +1,4 @@
- "use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -8,6 +8,7 @@ import type { WorkflowWithEnrichment, DuplicateMap } from "@/lib/enrichment";
 import type { AutomationProvider } from "@/app/workflow-helpers";
 import type { Workflow } from "@/app/workflow-helpers";
 import { generateDraftIntent } from "@/lib/intent";
+import { StatusDot, FilterGroup, ExternalLinkIcon, TrashIcon, ChevronDownIcon } from "@/components/ui";
 
 type EnrichedWorkflow = WorkflowWithEnrichment & { tool: AutomationProvider };
 
@@ -55,7 +56,7 @@ function StatusCell({ active, health }: { active: boolean; health: string }) {
   if (!active) {
     return (
       <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-500">
-        <span className="w-[5px] h-[5px] rounded-full bg-gray-300" />
+        <StatusDot variant="neutral" />
         Inactive
       </span>
     );
@@ -63,7 +64,7 @@ function StatusCell({ active, health }: { active: boolean; health: string }) {
   if (health === "broken") {
     return (
       <span className="inline-flex items-center gap-1.5 text-[11px] text-red-600">
-        <span className="w-[5px] h-[5px] rounded-full bg-red-500" />
+        <StatusDot variant="error" />
         Broken
       </span>
     );
@@ -71,14 +72,14 @@ function StatusCell({ active, health }: { active: boolean; health: string }) {
   if (health === "warning" || health === "optimizable") {
     return (
       <span className="inline-flex items-center gap-1.5 text-[11px] text-amber-700">
-        <span className="w-[5px] h-[5px] rounded-full bg-amber-500" />
+        <StatusDot variant="warning" />
         Warning
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1.5 text-[11px] text-emerald-700">
-      <span className="w-[5px] h-[5px] rounded-full bg-emerald-500" />
+      <StatusDot variant="success" />
       OK
     </span>
   );
@@ -100,54 +101,6 @@ function ToolBadge({ tool }: { tool: AutomationProvider }) {
   );
 }
 
-function ExternalLinkIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-      <polyline points="15 3 21 3 21 9" />
-      <line x1="10" y1="14" x2="21" y2="3" />
-    </svg>
-  );
-}
-
-function TrashIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-      <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
-    </svg>
-  );
-}
-
-function ChevronDown({ className, expanded }: { className?: string; expanded: boolean }) {
-  return (
-    <svg
-      className={className}
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
-    >
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  );
-}
 
 const PROBLEM_SOLVED_TRUNCATE = 56;
 const COLLAPSED_SIZE = 5;
@@ -222,23 +175,11 @@ export default function WorkflowList({
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-2.5">
         {showStatusFilter ? (
-          <div className="flex items-center gap-1 bg-gray-100/80 rounded-lg p-0.5">
-            {filters.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => onStatusFilterChange?.(f.value)}
-                className={`px-2.5 py-1.5 text-[11px] rounded-md transition-all duration-150 flex items-center gap-1.5 ${
-                  statusFilter === f.value
-                    ? "bg-white text-gray-900 shadow-sm"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                {f.label}
-                <span className="text-[10px] text-gray-400">{f.count}</span>
-              </button>
-            ))}
-          </div>
+          <FilterGroup
+            options={filters.map((f) => ({ label: f.label, value: f.value, count: f.count }))}
+            value={statusFilter ?? "all"}
+            onChange={(v) => onStatusFilterChange?.(v as StatusFilterValue)}
+          />
         ) : (
           <div />
         )}
@@ -388,9 +329,9 @@ export default function WorkflowList({
             <span className="text-[11px] text-gray-400">
               {listExpanded ? "Show less" : `Show more workflows (${filtered.length})`}
             </span>
-            <ChevronDown
+            <ChevronDownIcon
               className="w-3 h-3 text-gray-400 transition-transform duration-200"
-              expanded={listExpanded}
+              style={{ transform: listExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
             />
           </button>
         )}

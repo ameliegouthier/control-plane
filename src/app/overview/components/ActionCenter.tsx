@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { saveDashboardScroll } from "@/lib/dashboard-scroll";
 import type { EnrichedIssue } from "@/lib/enrichment";
-import { SectionHeader } from "@/components/ui";
+import { SectionHeader, AlertTriangleIcon, OptimizationIcon, ActionListItem } from "@/components/ui";
 
 export interface ActionItem {
   workflow: {
@@ -28,73 +27,6 @@ function formatIssueType(type: string): string {
     .join(" ");
 }
 
-function UrgentIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-      <line x1="12" y1="9" x2="12" y2="13" />
-      <line x1="12" y1="17" x2="12.01" y2="17" />
-    </svg>
-  );
-}
-
-function OptimizationIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" y1="13" x2="8" y2="13" />
-      <line x1="16" y1="17" x2="8" y2="17" />
-      <polyline points="10 9 9 9 8 9" />
-    </svg>
-  );
-}
-
-function ChevronRight({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  );
-}
-
-function ActionRow({
-  workflow,
-  topIssue,
-  variant,
-}: {
-  workflow: ActionItem["workflow"];
-  topIssue?: EnrichedIssue;
-  variant: "urgent" | "optimization";
-}) {
-  const impact = topIssue?.copy?.impact ?? "This workflow needs attention.";
-  const issueTypeLabel = topIssue ? formatIssueType(topIssue.type) : "Issue";
-  const title = variant === "urgent" ? (topIssue?.type === "broken" ? "Broken workflow" : issueTypeLabel) : issueTypeLabel;
-  const description = `${workflow.name} — ${impact}`;
-
-  const isUrgent = variant === "urgent";
-  const accentBg = isUrgent ? "bg-red-50" : "bg-amber-50";
-  const accentText = isUrgent ? "text-red-600" : "text-amber-700";
-  const accentBorder = isUrgent ? "border-red-100" : "border-amber-100";
-
-  return (
-    <Link
-      href={`/workflows/${workflow.id}`}
-      className="flex items-center gap-3 px-3.5 py-3 bg-white rounded-lg hover:bg-gray-50/60 transition-all duration-150 cursor-pointer group"
-      style={{ border: '1px solid rgba(0,0,0,0.06)' }}
-      onClick={saveDashboardScroll}
-    >
-      <div className={`w-7 h-7 rounded-md ${accentBg} ${accentText} flex items-center justify-center shrink-0 border ${accentBorder}`}>
-        {isUrgent ? <UrgentIcon className="w-3.5 h-3.5" /> : <OptimizationIcon className="w-3.5 h-3.5" />}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] text-gray-900">{title}</div>
-        <div className="text-[11px] text-gray-400 truncate">{description}</div>
-      </div>
-      <ChevronRight className="w-3.5 h-3.5 text-gray-200 group-hover:text-gray-400 transition-colors shrink-0" />
-    </Link>
-  );
-}
 
 function SectionBlock({
   title,
@@ -130,9 +62,26 @@ function SectionBlock({
         </div>
       ) : (
         <div className="space-y-1.5">
-          {displayItems.map(({ workflow, topIssue }) => (
-            <ActionRow key={workflow.id} workflow={workflow} topIssue={topIssue} variant={variant} />
-          ))}
+          {displayItems.map(({ workflow, topIssue }) => {
+            const impact = topIssue?.copy?.impact ?? "This workflow needs attention.";
+            const issueTypeLabel = topIssue ? formatIssueType(topIssue.type) : "Issue";
+            const rowTitle = isUrgent ? (topIssue?.type === "broken" ? "Broken workflow" : issueTypeLabel) : issueTypeLabel;
+            const rowDescription = `${workflow.name} — ${impact}`;
+            const rowIcon = isUrgent
+              ? <AlertTriangleIcon className="w-3.5 h-3.5" />
+              : <OptimizationIcon className="w-3.5 h-3.5" />;
+            return (
+              <ActionListItem
+                key={workflow.id}
+                href={`/workflows/${workflow.id}`}
+                icon={rowIcon}
+                title={rowTitle}
+                description={rowDescription}
+                variant={variant}
+                onClick={saveDashboardScroll}
+              />
+            );
+          })}
         </div>
       )}
     </div>

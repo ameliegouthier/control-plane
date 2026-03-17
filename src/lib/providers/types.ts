@@ -35,6 +35,8 @@ export interface WorkflowCore {
   connectionId: string;
   createdAt: string;
   updatedAt: string;
+  /** AI-generated one-sentence summary of what the workflow does. Null until generated. */
+  aiSummary?: string | null;
 }
 
 /** Category for normalized nodes (trigger, read, write, notify, ai, transform). */
@@ -77,6 +79,8 @@ export interface WorkflowGraphNode {
   channelId?: string;
   /** Present when this node was extracted from an AI agent's tool flow. */
   meta?: AgentToolMeta;
+  /** AI-generated description of what this node does. Null until generated. */
+  aiSummary?: string | null;
 }
 
 /**

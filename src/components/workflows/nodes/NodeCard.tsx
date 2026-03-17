@@ -21,19 +21,33 @@ export const nodeThemes: Record<string, NodeTheme> = {
   tool:      { bg: "#f1f5f9", border: "#cbd5e1", text: "#475569", pillText: "#475569", label: "Tool",      dotBg: "#64748b" },
 };
 
+function formatOperation(op: string): string {
+  return op
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[\s_-]+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
 interface NodeCardProps {
   themeKey: string;
   label: string;
   service?: string;
+  operation?: string;
+  aiSummary?: string | null;
 }
 
-export function NodeCard({ themeKey, label, service }: NodeCardProps) {
+export function NodeCard({ themeKey, label, service, operation, aiSummary }: NodeCardProps) {
   const t = nodeThemes[themeKey] ?? nodeThemes.action;
+  const serviceDisplay = service ?? label;
+  const operationDisplay = operation ? formatOperation(operation) : null;
+  const mainText = aiSummary?.trim().replace(/\.$/, "") ?? operationDisplay ?? label;
 
   return (
-    <div style={{ width: 220, height: 80 }}>
+    <div style={{ width: 220 }}>
       <div
-        className="relative w-full h-full rounded-xl flex flex-col justify-center"
+        className="relative w-full rounded-xl flex flex-col justify-center"
         style={{
           background: t.bg,
           border: `1.5px solid ${t.border}`,
@@ -53,19 +67,25 @@ export function NodeCard({ themeKey, label, service }: NodeCardProps) {
           </span>
         </div>
         <div
-          className="text-[12px] truncate"
-          style={{ color: t.text, lineHeight: "16px" }}
+          className="text-[9px] uppercase truncate"
+          style={{ color: t.text, opacity: 0.8, lineHeight: "14px", marginBottom: "6px" }}
         >
-          {label}
+          {serviceDisplay}
         </div>
-        {service && (
-          <span
-            className="text-[10px] text-gray-400 truncate mt-0.5"
-            style={{ lineHeight: "14px" }}
-          >
-            {service}
-          </span>
-        )}
+        <div
+          style={{
+            color: t.text,
+            fontWeight: 500,
+            fontSize: "11px",
+            lineHeight: "15px",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {mainText}
+        </div>
       </div>
     </div>
   );

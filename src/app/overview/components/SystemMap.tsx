@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import type { WorkflowWithEnrichment } from "@/lib/enrichment";
+import type { WorkflowWithFullEnrichment } from "@/lib/enrichment";
 import type { AutomationProvider, WorkflowGraph } from "@/app/workflow-helpers";
 import { getDestinationByName, nameToSlug } from "@/app/data/destinations";
-import { SectionHeader } from "@/components/ui";
+import { SectionHeader, ArrowRightIcon, Badge } from "@/components/ui";
 
-type EnrichedWorkflow = WorkflowWithEnrichment & {
+type EnrichedWorkflow = WorkflowWithFullEnrichment & {
   tool: AutomationProvider;
   /** Graph from normalized workflow (for service-based grouping). */
   graph?: WorkflowGraph;
@@ -137,12 +137,15 @@ function getWorkflowServices(workflow: EnrichedWorkflow): string[] {
   return filtered;
 }
 
-function ArrowRight({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M5 12h14M12 5l7 7-7 7" />
-    </svg>
-  );
+
+function getNodeCount(service: string, list: EnrichedWorkflow[]): number {
+  return list.reduce((acc, wf) => {
+    const nodes = wf.graph?.nodes ?? [];
+    return acc + nodes.filter((n) => {
+      const s = toNormalizedService(n.service ?? "");
+      return s === service;
+    }).length;
+  }, 0);
 }
 
 interface SystemMapProps {
@@ -220,22 +223,32 @@ export default function SystemMap({ workflows }: SystemMapProps) {
                   <div>
                     <div className="text-[14px] text-gray-900">{formatServiceLabel(service)}</div>
                     <div className="text-[11px] text-gray-400">
-                      {list.length} workflow{list.length !== 1 ? "s" : ""} connected
+                      {list.length} workflow{list.length !== 1 ? "s" : ""} · {getNodeCount(service, list)} node{getNodeCount(service, list) !== 1 ? "s" : ""}
                     </div>
                   </div>
                 </div>
-                <ArrowRight className="w-4 h-4 text-gray-200 group-hover:text-gray-400 transition-colors" />
+                <ArrowRightIcon className="w-4 h-4 text-gray-200 group-hover:text-gray-400 transition-colors" />
               </div>
               {/* Workflow list */}
               <div className="px-5 pb-5">
-                {list.map((wf, index) => (
-                  <div
-                    key={wf.id}
-                    className={`text-[13px] text-gray-800 ${list.length > 1 && index < list.length - 1 ? "pb-3 mb-3 border-b border-gray-100" : ""}`}
-                  >
-                    {wf.name}
-                  </div>
-                ))}
+                {list.map((wf, index) => {
+                  const displayText = (wf.aiSummary?.trim().replace(/\.$/, "") ?? wf.name);
+                  const isLast = index === list.length - 1;
+                  return (
+                    <div
+                      key={wf.id}
+                      className="flex items-center justify-between gap-2 py-[6px]"
+                      style={!isLast ? { borderBottom: "0.5px solid rgba(0,0,0,0.05)" } : undefined}
+                    >
+                      <p className="text-[13px] text-gray-900 truncate">{displayText}</p>
+                      <div className="shrink-0">
+                        <Badge variant={wf.active ? "success" : "neutral"}>
+                          {wf.active ? "Active" : "Inactive"}
+                        </Badge>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </Link>
           );

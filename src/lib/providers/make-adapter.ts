@@ -23,6 +23,7 @@ import type {
   RawProviderWorkflow,
 } from "./types";
 import { syncWorkflowNodes } from "./sync-workflow-nodes";
+import { generateWorkflowSummary, generateNodeSummary } from "../generateWorkflowSummary";
 import type { AgentToolMeta } from "./types";
 import {
   normalizeMakeFlowItem,
@@ -588,7 +589,33 @@ export class MakeAdapter implements ProviderAdapter {
           workflowId = created.id;
         }
 
-        await syncWorkflowNodes(workflowId, normalized.graph);
+        const syncedNodes = await syncWorkflowNodes(workflowId, normalized.graph);
+
+        for (const node of syncedNodes) {
+          if (node.aiSummary === null) {
+            const summary = await generateNodeSummary(node, normalized.name);
+            await prisma.workflowNode.update({
+              where: { id: node.id },
+              data: { aiSummary: summary },
+            });
+          }
+        }
+
+        // Generate AI summary only once (when aiSummary is not yet set)
+        const saved = await prisma.workflow.findUnique({
+          where: { id: workflowId },
+          select: { aiSummary: true },
+        });
+        if (saved?.aiSummary === null) {
+          const actionNode = normalized.graph?.nodes.find((n) => n.kind === "action" && n.service);
+          const resourceName = actionNode?.service ?? normalized.name;
+          const summary = await generateWorkflowSummary(normalized, resourceName);
+          await prisma.workflow.update({
+            where: { id: workflowId },
+            data: { aiSummary: summary },
+          });
+        }
+
         synced++;
       }
 

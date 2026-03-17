@@ -17,6 +17,7 @@ import {
 } from "../lib/intent";
 import ConnectProviderModal from "./connect-provider-modal";
 import { getAllWorkflows } from "@/lib/repositories/workflowsRepository";
+import { ArrowIcon } from "@/components/ui";
 
 // ─── Tool Sidebar ────────────────────────────────────────────────────────────
 
@@ -507,21 +508,6 @@ function NodeTile({ node }: { node: MiniMapNode }) {
   );
 }
 
-function Arrow() {
-  return (
-    <div className="flex shrink-0 items-center px-0.5 text-muted-foreground">
-      <svg width="24" height="12" viewBox="0 0 24 12" fill="none">
-        <path
-          d="M0 6h20m0 0-4-4m4 4-4 4"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </div>
-  );
-}
 
 function MiniWorkflowMap({ workflow }: { workflow: Workflow }) {
   const { mainPath, branches } = buildMiniMap(workflow.graph);
@@ -539,7 +525,7 @@ function MiniWorkflowMap({ workflow }: { workflow: Workflow }) {
       <div className="flex items-center">
         {mainPath.map((node, i) => (
           <div key={node.name} className="flex items-center">
-            {i > 0 && <Arrow />}
+            {i > 0 && <ArrowIcon />}
             <NodeTile node={node} />
           </div>
         ))}
@@ -549,7 +535,7 @@ function MiniWorkflowMap({ workflow }: { workflow: Workflow }) {
           <span className="mr-1 text-[10px] text-muted-foreground">↳</span>
           {branch.map((node, i) => (
             <div key={node.name} className="flex items-center">
-              {i > 0 && <Arrow />}
+              {i > 0 && <ArrowIcon />}
               <NodeTile node={node} />
             </div>
           ))}

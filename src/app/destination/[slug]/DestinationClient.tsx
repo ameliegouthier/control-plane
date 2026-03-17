@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useProviderFilter } from "@/hooks/useProviderFilter";
 import type { Workflow } from "@/app/workflow-helpers";
 import type { DestinationMeta } from "@/app/data/destinations";
+import { Badge, ExternalLinkIcon, EmptyState, ToolBadge } from "@/components/ui";
 
 const DEST_COLORS: Record<string, { bg: string; text: string }> = {
   orange: { bg: "bg-orange-50", text: "text-orange-600" },
@@ -15,26 +16,33 @@ const DEST_COLORS: Record<string, { bg: string; text: string }> = {
   amber: { bg: "bg-amber-50", text: "text-amber-700" },
 };
 
-const TOOL_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  n8n: { bg: "bg-orange-50", text: "text-orange-600", border: "border-orange-100" },
-  zapier: { bg: "bg-amber-50", text: "text-amber-600", border: "border-amber-100" },
-  make: { bg: "bg-violet-50", text: "text-violet-600", border: "border-violet-100" },
-  airtable: { bg: "bg-blue-50", text: "text-blue-600", border: "border-blue-100" },
-};
 
-function ToolBadge({ tool }: { tool: string }) {
-  const s = TOOL_STYLES[tool] ?? { bg: "bg-gray-50", text: "text-gray-600", border: "border-gray-100" };
-  return (
-    <span className={`text-[10px] px-1.5 py-[2px] rounded border ${s.bg} ${s.text} ${s.border}`}>
-      {tool}
-    </span>
-  );
+/** Maps a technical action string to a human-readable label. */
+function toReadableAction(action?: string): string {
+  if (!action) return "Opération";
+  const a = action.toLowerCase();
+  if (a.includes("write") || a.includes("update") || a.includes("set")) return "Modifie des données";
+  if (a.includes("create") || a.includes("insert") || a.includes("add")) return "Crée un nouveau record";
+  if (a.includes("delete") || a.includes("remove")) return "Supprime un record";
+  if (a.includes("read") || a.includes("get") || a.includes("list") || a.includes("search")) return "Lit des données";
+  if (a.includes("send")) return "Envoie un message";
+  if (a.includes("trigger") || a.includes("webhook")) return "Déclenche une action";
+  // Fallback: clean and capitalize
+  return action
+    .replace(/[_-]/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .split(" ")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
 }
 
 export interface DestinationMutation {
   workflowId: string;
   workflowName: string;
   workflowProvider: string;
+  workflowActive: boolean;
+  workflowAiSummary?: string | null;
+  problemSolved?: string;
   nodeId: string;
   service: string;
   action?: string;
@@ -123,48 +131,64 @@ export default function DestinationClient({
                 {destinationName}
               </h1>
               <p className="text-[13px] text-gray-400">
-                {filteredMutations.length} mutation{filteredMutations.length !== 1 ? "s" : ""} writing to this destination
+                {filteredMutations.length} workflow{filteredMutations.length !== 1 ? "s" : ""} modifient des données {destinationName}
               </p>
             </div>
           </div>
 
-          {/* Mutation cards */}
-          <div className="space-y-4">
-            {filteredMutations.map((m) => {
-              const primary = m.action ? `${m.service}:${m.action}` : m.service;
-              return (
-                <div
-                  key={m.nodeId}
-                  className="bg-white rounded-xl transition-all duration-200 hover:shadow-sm"
-                  style={{ border: "1px solid rgba(0,0,0,0.07)" }}
-                >
-                  {/* Card header */}
-                  <div className="px-6 pt-5 pb-1">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="text-[14px] text-gray-900">
-                          {primary}
+          {/* Empty state */}
+          {filteredMutations.length === 0 ? (
+            <EmptyState message="No operations found for this service" />
+          ) : (
+            /* Mutation cards */
+            <div className="space-y-3">
+              {filteredMutations.map((m) => {
+                const readableAction = toReadableAction(m.action);
+                const description = m.problemSolved && m.problemSolved !== "—"
+                  ? m.problemSolved
+                  : `Workflow ${m.workflowName} — ${readableAction} dans ${m.service}`;
+                const statusVariant = m.workflowActive ? "success" : "neutral";
+                const statusLabel = m.workflowActive ? "Active" : "Inactive";
+
+                const rawSummary = m.workflowAiSummary?.trim().replace(/\.$/, "");
+                const displayText = rawSummary ?? m.workflowName;
+                const subtitle = `${readableAction} · ${m.workflowName}`;
+
+                return (
+                  <div
+                    key={m.nodeId}
+                    className="bg-white rounded-xl transition-all duration-200 hover:shadow-sm"
+                    style={{ border: "1px solid rgba(0,0,0,0.07)" }}
+                  >
+                    <div className="px-5 py-4">
+                      {/* Top row: provider badge + status */}
+                      <div className="flex items-center justify-between gap-3 mb-1.5">
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-medium text-[#0f172a] truncate">{displayText}</p>
+                          <p className="text-[11px] text-gray-400 truncate mt-0.5">{subtitle}</p>
                         </div>
-                        <p className="mt-0.5 text-[12px] text-gray-400">
-                          {m.label} · from{" "}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <ToolBadge tool={m.workflowProvider} />
+                          <Badge variant={statusVariant}>{statusLabel}</Badge>
                           <Link
                             href={`/workflows/${m.workflowId}`}
-                            className="hover:underline"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-gray-300 hover:text-gray-600 transition-colors"
+                            aria-label={`Open workflow ${m.workflowName}`}
                           >
-                            {m.workflowName}
+                            <ExternalLinkIcon className="w-3.5 h-3.5" />
                           </Link>
-                        </p>
+                        </div>
                       </div>
-                      <ToolBadge tool={m.workflowProvider} />
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
-

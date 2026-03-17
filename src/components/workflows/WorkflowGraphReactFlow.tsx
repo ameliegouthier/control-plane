@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   MarkerType,
   ReactFlow,
@@ -35,13 +35,13 @@ const nodeTypes = {
 // ─── Layout constants ─────────────────────────────────────────────────────────
 
 const NODE_W = 220;
-const NODE_H = 80;
+const NODE_H_ESTIMATE = 100; // used for container sizing before DOM measurement
 const PADDING = 20;
 const MIN_CONTAINER_H = 200;
 
-const MAIN_SPACING_X = 320;
-const TOOL_OFFSET_X = 320;
-const TOOL_SPACING_Y = 120;
+const MAIN_SPACING_X = 340; // NODE_W(220) + gap(120)
+const TOOL_OFFSET_X = 340;
+const TOOL_SPACING_Y = 140;
 
 const TYPE_ORDER: Record<string, number> = {
   trigger: 0,
@@ -221,7 +221,7 @@ function layoutPreviewNodes(
   const allY = [...positioned.values()].map((p) => p.y);
   const minY = Math.min(...allY);
   const maxY = Math.max(...allY);
-  const contentH = maxY - minY + NODE_H;
+  const contentH = maxY - minY + NODE_H_ESTIMATE;
   const containerH = Math.max(contentH + PADDING * 2, MIN_CONTAINER_H);
   const offsetY = Math.round((containerH - contentH) / 2) - minY;
 
@@ -246,7 +246,26 @@ export function WorkflowGraphReactFlow({
   workflow,
 }: WorkflowGraphReactFlowProps) {
   const [mounted, setMounted] = useState(false);
+  const [measuredH, setMeasuredH] = useState<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => setMounted(true), []);
+
+  useLayoutEffect(() => {
+    if (!containerRef.current) return;
+    const nodeEls = containerRef.current.querySelectorAll<HTMLElement>(
+      ".react-flow__node"
+    );
+    if (nodeEls.length === 0) return;
+    let maxBottom = 0;
+    nodeEls.forEach((el) => {
+      const rect = el.getBoundingClientRect();
+      const parentRect = containerRef.current!.getBoundingClientRect();
+      const bottom = rect.bottom - parentRect.top;
+      if (bottom > maxBottom) maxBottom = bottom;
+    });
+    if (maxBottom > 0) setMeasuredH(maxBottom + PADDING);
+  });
 
   const graph = workflow.graph;
 
@@ -268,14 +287,17 @@ export function WorkflowGraphReactFlow({
   const maxX = Math.max(...layoutedNodes.map((n) => n.position.x));
   const maxY = Math.max(...layoutedNodes.map((n) => n.position.y));
   const containerW = maxX + NODE_W + PADDING;
-  const containerH = Math.max(maxY + NODE_H + PADDING, 200);
+  const containerH = Math.max(maxY + NODE_H_ESTIMATE + PADDING, 200);
+
+  const finalH = measuredH ?? containerH;
 
   return (
     <>
       <style>{STYLES}</style>
       <div className="workflow-preview" style={{ height: "fit-content" }}>
         <div
-          style={{ width: containerW, height: containerH, minWidth: "100%" }}
+          ref={containerRef}
+          style={{ width: containerW, height: finalH, minWidth: "100%" }}
         >
           <ReactFlow
             nodes={layoutedNodes}

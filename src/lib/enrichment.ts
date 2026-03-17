@@ -39,6 +39,8 @@ export interface RawWorkflow {
   destination?: string;
   /** Override health for demo/display (e.g. optimizable). */
   healthOverride?: HealthStatus;
+  /** AI-generated one-sentence summary. Null until generated. */
+  aiSummary?: string | null;
 }
 
 export type WorkflowDomain =
