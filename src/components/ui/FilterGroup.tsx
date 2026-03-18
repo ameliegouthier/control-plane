@@ -20,7 +20,7 @@ export function FilterGroup({ options, value, onChange }: FilterGroupProps) {
           key={option.value}
           type="button"
           onClick={() => onChange(option.value)}
-          className={`px-2.5 py-1.5 text-[11px] rounded-md transition-all duration-150 flex items-center gap-1.5 ${
+          className={`px-2.5 py-1.5 text-[11px] rounded-md transition-all duration-150 flex items-center gap-1.5 cursor-pointer ${
             value === option.value
               ? "bg-white text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground"

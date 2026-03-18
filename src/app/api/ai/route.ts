@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const { prompt } = (await req.json()) as { prompt?: string };
+    const { prompt, systemPrompt } = (await req.json()) as { prompt?: string; systemPrompt?: string };
 
     if (!prompt || typeof prompt !== "string") {
       return Response.json(
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
       messages: [
         {
           role: "system",
-          content: "You are an automation architecture expert.",
+          content: systemPrompt ?? "You are an automation architecture expert.",
         },
         {
           role: "user",

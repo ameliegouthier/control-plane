@@ -52,7 +52,7 @@ export function ActionListItem({
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 px-3.5 py-3 bg-card rounded-lg hover:bg-accent/60 transition-all duration-150 cursor-pointer group"
+      className="flex items-center gap-3 px-3.5 py-3 bg-card rounded-lg hover:shadow-sm transition-all duration-150 cursor-pointer group"
       style={{ border: "1px solid rgba(0,0,0,0.06)" }}
       onClick={onClick}
     >

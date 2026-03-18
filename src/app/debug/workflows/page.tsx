@@ -17,7 +17,8 @@ import type { WorkflowWithSignals } from "@/lib/signals/types";
 import { detectSignals } from "@/lib/signals/signalEngine";
 import type { Workflow } from "@/app/workflow-helpers";
 import { buildSystemGraph } from "@/lib/system/systemGraph";
-import { runAIAdvisor } from "@/lib/ai/aiAdvisor";
+import { runWorkflowAdvisor, type AIAdvisorWorkflowInput } from "@/lib/ai/aiAdvisor";
+import { prisma } from "@/lib/prisma";
 import {
   DebugWorkflowsView,
   type DebugSectionPayload,
@@ -285,32 +286,68 @@ export default async function DebugWorkflowsPage(): Promise<JSX.Element> {
     edges: systemGraph.edges,
   });
 
-  // AI optimization agent: paused by default. Set AI_OPTIMIZATION_AGENT_ENABLED=true to re-enable.
+  // Per-workflow AI advisor: set AI_OPTIMIZATION_AGENT_ENABLED=true to run.
   if (process.env.AI_OPTIMIZATION_AGENT_ENABLED === "true") {
-    const aiInput = {
-      services: Array.from(systemGraph.services.values()).map((s) => s.service),
-      connections: systemGraph.edges.map((e) => `${e.from} → ${e.to}`),
-      signals: Array.from(liveDebug.fullById.values()).flatMap((w) =>
-        (w.signals ?? []).map((s) => s.type),
-      ),
-    };
     const headersList = await headers();
     const host = headersList.get("host") ?? "localhost:3000";
     const protocol =
       headersList.get("x-forwarded-proto") ||
       (host.includes("localhost") ? "http" : "https");
     const baseUrl = `${protocol}://${host}`;
-    const aiResult = await runAIAdvisor(aiInput, { baseUrl });
-    console.log("AI_ADVISOR_RESULT", aiResult);
+
+    const activeWorkflows = liveWorkflows.filter((wf) => wf.active);
+
+    for (const wf of activeWorkflows) {
+      const nodes: AIAdvisorWorkflowInput["nodes"] = (wf.graph?.nodes ?? []).map((n) => ({
+        service: (n.service as string | undefined) ?? (n.label as string | undefined) ?? "",
+        operation: ((n as { operation?: string }).operation ?? (n as { action?: string }).action) ?? "",
+        kind: (n.type as string | undefined) ?? "action",
+      }));
+
+      const wfWithSignals = liveDebug.fullById.get(wf.id);
+      const signals = (wfWithSignals?.signals ?? []).map((s) => s.type);
+
+      const input: AIAdvisorWorkflowInput = {
+        workflowId: wf.id,
+        workflowName: wf.name,
+        nodes,
+        signals,
+      };
+
+      try {
+        const insights = await runWorkflowAdvisor(input, { baseUrl });
+        if (insights.length > 0) {
+          await prisma.workflowInsight.deleteMany({ where: { workflowId: wf.id } });
+          await prisma.workflowInsight.createMany({
+            data: insights.map((i) => ({
+              workflowId: wf.id,
+              type: i.type,
+              severity: i.severity,
+              title: i.title,
+              description: i.description ?? null,
+              fix: i.fix ?? null,
+            })),
+          });
+          console.log(`AI_ADVISOR: saved ${insights.length} insights for workflow ${wf.id}`);
+        }
+      } catch (err) {
+        console.error(`AI_ADVISOR: failed for workflow ${wf.id}`, err);
+      }
+    }
   }
 
   const { sections: sectionPayloads, optimizationActions } =
     buildPayload([liveDebug]);
 
+  const dbInsights = await prisma.workflowInsight.findMany({
+    select: { workflowId: true, type: true, severity: true, title: true, description: true, fix: true },
+  });
+
   return (
     <DebugWorkflowsView
       sections={sectionPayloads}
       optimizationActions={optimizationActions}
+      workflowInsights={dbInsights}
     />
   );
 }

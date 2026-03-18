@@ -102,11 +102,24 @@ export interface WorkflowGraph {
 }
 
 /**
+ * Serializable representation of a WorkflowInsight from the DB.
+ */
+export interface WorkflowInsightData {
+  id: string;
+  type: string;
+  severity: string;
+  title: string;
+  description: string | null;
+  fix: string | null;
+}
+
+/**
  * Complete Workflow model - provider-agnostic.
  * Combines core metadata with optional normalized graph structure.
  */
 export interface Workflow extends WorkflowCore {
   graph?: WorkflowGraph;
+  insights?: WorkflowInsightData[];
 }
 
 // ─── Legacy Types (for backward compatibility during migration) ────────────────

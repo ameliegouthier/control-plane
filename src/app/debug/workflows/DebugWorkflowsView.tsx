@@ -70,9 +70,19 @@ export type OptimizationActionPayload = {
   suggestion: string;
 };
 
+export type WorkflowInsightPayload = {
+  workflowId: string;
+  type: string;
+  severity: string;
+  title: string;
+  description: string | null;
+  fix: string | null;
+};
+
 export type DebugWorkflowsViewProps = {
   sections: DebugSectionPayload[];
   optimizationActions: OptimizationActionPayload[];
+  workflowInsights?: WorkflowInsightPayload[];
 };
 
 const cardStyle = {
@@ -123,7 +133,15 @@ function SeverityBadge({ severity }: { severity: number }) {
 export function DebugWorkflowsView({
   sections,
   optimizationActions,
+  workflowInsights = [],
 }: DebugWorkflowsViewProps) {
+  const insightsByWorkflow = workflowInsights.reduce<Record<string, WorkflowInsightPayload[]>>(
+    (acc, ins) => {
+      (acc[ins.workflowId] ??= []).push(ins);
+      return acc;
+    },
+    {},
+  );
   const [showTechnical, setShowTechnical] = useState(false);
 
   return (
@@ -329,6 +347,37 @@ export function DebugWorkflowsView({
                   )}
                 </div>
 
+                {/* AI Insights */}
+                {insightsByWorkflow[wf.workflowId] && insightsByWorkflow[wf.workflowId].length > 0 && (
+                  <div style={{ marginTop: "12px" }}>
+                    <div style={sectionTitleStyle}>AI Insights</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {insightsByWorkflow[wf.workflowId].map((ins, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            padding: "10px 12px",
+                            borderRadius: "8px",
+                            border: "1px solid rgba(234, 179, 8, 0.4)",
+                            backgroundColor: "#fffbeb",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                            <span style={{ fontSize: "12px", fontWeight: 600, color: "#111827" }}>{ins.title}</span>
+                            <SeverityBadge severity={ins.severity === "high" ? 80 : ins.severity === "medium" ? 50 : 20} />
+                          </div>
+                          {ins.description && (
+                            <div style={{ fontSize: "11px", color: "#374151", marginBottom: "4px" }}>{ins.description}</div>
+                          )}
+                          {ins.fix && (
+                            <div style={{ fontSize: "11px", color: "#0f766e", fontStyle: "italic" }}>→ {ins.fix}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Technical Debug Data (collapsible) */}
                 {showTechnical && wf.technical && (
                   <details
@@ -481,7 +530,7 @@ export function DebugWorkflowsView({
         </section>
       ))}
 
-      {/* Final Optimization Actions */}
+      {/* AI Workflow Insights (from DB) */}
       <section
         style={{
           marginTop: "28px",
@@ -492,93 +541,36 @@ export function DebugWorkflowsView({
           boxShadow: "0 10px 25px rgba(15, 23, 42, 0.06)",
         }}
       >
-        <div
-          style={{
-            fontSize: "14px",
-            fontWeight: 600,
-            marginBottom: "4px",
-            color: "#0f172a",
-          }}
-        >
-          Final Optimization Actions
+        <div style={{ fontSize: "14px", fontWeight: 600, marginBottom: "4px", color: "#0f172a" }}>
+          AI Workflow Insights
         </div>
-        <p
-          style={{
-            fontSize: "12px",
-            color: "#6b7280",
-            marginBottom: "12px",
-          }}
-        >
-          Workflows with optimization issues (health ≠ broken), ordered by
-          severity.
+        <p style={{ fontSize: "12px", color: "#6b7280", marginBottom: "12px" }}>
+          AI-generated insights saved to DB. Run the debug page with AI_OPTIMIZATION_AGENT_ENABLED=true to populate.
         </p>
 
-        {optimizationActions.length === 0 ? (
-          <div
-            style={{
-              fontSize: "13px",
-              color: "#6b7280",
-              padding: "12px",
-              borderRadius: "6px",
-              border: "1px solid rgba(148, 163, 184, 0.6)",
-              backgroundColor: "#f9fafb",
-            }}
-          >
-            No optimization actions
+        {workflowInsights.length === 0 ? (
+          <div style={{ fontSize: "13px", color: "#6b7280", padding: "12px", borderRadius: "6px", border: "1px solid rgba(148, 163, 184, 0.6)", backgroundColor: "#f9fafb" }}>
+            No AI insights in DB yet.
           </div>
         ) : (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "8px",
-            }}
-          >
-            {optimizationActions.map((item) => (
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {workflowInsights.map((ins, idx) => (
               <div
-                key={item.id}
-                style={{
-                  padding: "12px 14px",
-                  borderRadius: "8px",
-                  border: "1px solid rgba(234, 179, 8, 0.6)",
-                  backgroundColor: "#fffbeb",
-                }}
+                key={idx}
+                style={{ padding: "12px 14px", borderRadius: "8px", border: "1px solid rgba(234, 179, 8, 0.6)", backgroundColor: "#fffbeb" }}
               >
-                <div
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: 600,
-                    color: "#111827",
-                    marginBottom: "4px",
-                  }}
-                >
-                  {item.name}
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111827", marginBottom: "4px" }}>
+                  {ins.title}
                 </div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    marginBottom: "6px",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: "12px",
-                      color: "#475569",
-                    }}
-                  >
-                    Issue: {item.issueType.replace(/_/g, " ")}
-                  </span>
-                  <SeverityBadge severity={item.severity} />
-                </div>
-                <div
-                  style={{
-                    fontSize: "12px",
-                    color: "#374151",
-                  }}
-                >
-                  {item.suggestion}
+                {ins.description && (
+                  <div style={{ fontSize: "12px", color: "#374151", marginBottom: "6px" }}>{ins.description}</div>
+                )}
+                {ins.fix && (
+                  <div style={{ fontSize: "12px", color: "#0f766e" }}>→ {ins.fix}</div>
+                )}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "6px" }}>
+                  <SeverityBadge severity={ins.severity === "high" ? 80 : ins.severity === "medium" ? 50 : 20} />
+                  <span style={{ fontSize: "11px", color: "#6b7280" }}>{ins.type.replace(/_/g, " ")} · workflow {ins.workflowId.slice(0, 8)}…</span>
                 </div>
               </div>
             ))}

@@ -54,10 +54,27 @@ model Workflow {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   workflowNodes WorkflowNode[]
+  insights      WorkflowInsight[]
 
   @@index([userId])
   @@index([integrationId])
   @@index([status])
+}
+
+model WorkflowInsight {
+  id          String   @id @default(cuid())
+  workflowId  String
+  workflow    Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  type        String
+  severity    String
+  title       String
+  description String?
+  fix         String?
+  createdAt   DateTime @default(now())
+
+  @@index([workflowId])
+  @@index([type])
+  @@index([severity])
 }
 
 model WorkflowNode {

@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   type Workflow,
   getTriggerSummary,
-  getSignals,
   buildMiniMap,
 } from "../../workflow-helpers";
 import type { MiniMapNode } from "../../workflow-helpers";
@@ -15,127 +14,69 @@ import {
 } from "@/lib/intent";
 import { useProviderFilter } from "@/hooks/useProviderFilter";
 import { WorkflowGraphReactFlow } from "@/components/workflows/WorkflowGraphReactFlow";
-import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, AlertTriangleIcon, ZapIcon, ArrowLeftIcon, GitBranchIcon } from "@/components/ui";
+import { ChevronDownIcon, ArrowLeftIcon, GitBranchIcon } from "@/components/ui";
+import type { WorkflowInsightData } from "@/lib/providers/types";
+import type { Signal } from "@/lib/signals/types";
+import type { EnrichedIssue } from "@/lib/enrichment";
+import { SIGNAL_META, URGENT_LEVELS, OPTIM_LEVELS } from "@/lib/signals/signalMeta";
 
 export type WorkflowDetailClientProps = {
   workflow: Workflow | null;
   workflowId: string;
+  signals?: Signal[];
+  issuesEnriched?: EnrichedIssue[];
 };
 
 
 // ─── Optimization (carousel) ─────────────────────────────────────────────────
 
-type OptimizationId = "branching" | "external";
-
-interface OptimizationItem {
-  id: OptimizationId;
-  icon: "warning" | "zap";
-  title: string;
-  description: string;
-  recommendedFix: string;
-  impact: string[];
-  showMarkResolved: boolean;
-}
-
-function getOptimizationItems(signals: { hasBranching: boolean; hasExternalCalls: boolean }): OptimizationItem[] {
-  const items: OptimizationItem[] = [];
-  if (signals.hasBranching) {
-    items.push({
-      id: "branching",
-      icon: "warning",
-      title: "Branching logic could be simplified",
-      description: "This workflow contains multiple conditional branches.",
-      recommendedFix: "Merge conditions into a single validation step.",
-      impact: ["Reduces workflow complexity", "Improves maintainability"],
-      showMarkResolved: true,
-    });
-  }
-  if (signals.hasExternalCalls) {
-    items.push({
-      id: "external",
-      icon: "zap",
-      title: "External API calls detected",
-      description: "This workflow calls external services (e.g. HubSpot, Gmail).",
-      recommendedFix: "Add retry or fallback logic.",
-      impact: ["Improves reliability", "Prevents silent failures"],
-      showMarkResolved: false,
-    });
-  }
-  return items;
-}
-
 function OptimizationCard({
   item,
-  onHighlightNodes,
   onMarkResolved,
-  previewSectionRef,
 }: {
-  item: OptimizationItem;
-  onHighlightNodes: (id: OptimizationId) => void;
-  onMarkResolved: (id: OptimizationId) => void;
-  previewSectionRef: React.RefObject<HTMLDivElement | null>;
+  item: WorkflowInsightData;
+  onMarkResolved: (id: string) => void;
 }) {
   return (
     <div
-      className="bg-white rounded-xl px-6 py-5"
-      style={{ border: "1px solid rgba(0,0,0,0.07)" }}
+      className="flex flex-col justify-between shrink-0 rounded-xl"
+      style={{
+        minWidth: 220,
+        maxWidth: 240,
+        padding: "16px 18px",
+        background: "rgba(250,238,218,0.6)",
+        border: "0.5px solid #EF9F27",
+      }}
     >
-      <div className="flex items-start gap-2 mb-3">
-        {item.icon === "warning" ? (
-          <AlertTriangleIcon className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-        ) : (
-          <ZapIcon className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-        )}
-        <div>
-          <div className="text-[14px] text-gray-900" style={{ lineHeight: 1.4 }}>
-            {item.title}
-          </div>
-          <div className="text-[13px] text-gray-400 mt-0.5" style={{ lineHeight: 1.5 }}>
-            {item.description}
-          </div>
+      <div>
+        <div
+          className="text-[12px] font-medium mb-2"
+          style={{ color: "#633806", lineHeight: 1.4 }}
+        >
+          {item.title}
         </div>
-      </div>
-      <div className="ml-6">
-        <div className="text-[11px] tracking-[0.08em] uppercase text-amber-600 mb-1">
-          Recommended fix:
-        </div>
-        <div className="text-[13px] text-gray-700 mb-3" style={{ lineHeight: 1.5 }}>
-          {item.recommendedFix}
-        </div>
-        <div className="text-[11px] tracking-[0.08em] uppercase text-amber-600 mb-1">
-          Impact:
-        </div>
-        <div className="space-y-0.5 mb-4">
-          {item.impact.map((line, i) => (
-            <div key={i} className="flex items-center gap-2 text-[13px] text-gray-600" style={{ lineHeight: 1.5 }}>
-              <span className="text-gray-300">›</span>
-              {line}
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              previewSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-              onHighlightNodes(item.id);
-            }}
-            className="text-[12px] text-gray-500 px-3 py-1.5 rounded-lg transition-colors hover:bg-gray-50 cursor-default"
-            style={{ border: "1px solid rgba(0,0,0,0.1)" }}
+        {item.fix && (
+          <div
+            className="text-[11px] line-clamp-2"
+            style={{ color: "#854F0B", lineHeight: 1.5 }}
           >
-            Highlight nodes
-          </button>
-          {item.showMarkResolved && (
-            <button
-              type="button"
-              onClick={() => onMarkResolved(item.id)}
-              className="text-[12px] text-gray-500 px-3 py-1.5 rounded-lg transition-colors hover:bg-gray-50 cursor-default"
-              style={{ border: "1px solid rgba(0,0,0,0.1)" }}
-            >
-              Mark as resolved
-            </button>
-          )}
-        </div>
+            {item.fix}
+          </div>
+        )}
+      </div>
+      <div className="flex justify-end mt-3">
+        <button
+          type="button"
+          onClick={() => onMarkResolved(item.id)}
+          className="text-[11px] px-2.5 py-1 rounded-md transition-opacity hover:opacity-70 cursor-pointer"
+          style={{
+            color: "#854F0B",
+            border: "1px solid #EF9F27",
+            background: "rgba(255,255,255,0.5)",
+          }}
+        >
+          Mark as resolved
+        </button>
       </div>
     </div>
   );
@@ -574,7 +515,7 @@ const toolColors: Record<string, string> = {
 
 // ─── Main client component ────────────────────────────────────────────────────
 
-export default function WorkflowDetailClient({ workflow: workflowProp, workflowId }: WorkflowDetailClientProps) {
+export default function WorkflowDetailClient({ workflow: workflowProp, workflowId, signals, issuesEnriched }: WorkflowDetailClientProps) {
   const workflow = workflowProp;
   const { mergeWorkflows } = useProviderFilter({
     mode: "workflow",
@@ -594,8 +535,7 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
     [draftIntent, intentOverrides, workflowId]
   );
 
-  const [carouselPage, setCarouselPage] = useState(0);
-  const [resolvedOptimizations, setResolvedOptimizations] = useState<Set<OptimizationId>>(new Set());
+  const [resolvedOptimizations, setResolvedOptimizations] = useState<Set<string>>(new Set());
   const [intentExpanded, setIntentExpanded] = useState(false);
   const workflowPreviewRef = useRef<HTMLDivElement>(null);
 
@@ -610,11 +550,8 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
       return next;
     });
   }, [workflowId]);
-  const handleMarkResolved = useCallback((id: OptimizationId) => {
+  const handleMarkResolved = useCallback((id: string) => {
     setResolvedOptimizations((prev) => new Set(prev).add(id));
-  }, []);
-  const handleHighlightNodes = useCallback((id: OptimizationId) => {
-    workflowPreviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
   if (!workflow || !intent) {
@@ -644,15 +581,34 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
   }
 
   const trigger = getTriggerSummary(workflow.graph);
-  const signals = getSignals(workflow.graph);
-  const optimizationItems = useMemo(() => getOptimizationItems(signals), [signals.hasBranching, signals.hasExternalCalls]);
-  const visibleOptimizations = optimizationItems.filter((o) => !resolvedOptimizations.has(o.id));
 
-  const cardsPerPage = 2;
-  const totalPages = Math.max(1, Math.ceil(visibleOptimizations.length / cardsPerPage));
-  const canPrev = carouselPage > 0;
-  const canNext = carouselPage < totalPages - 1;
-  const visibleCards = visibleOptimizations.slice(carouselPage * cardsPerPage, carouselPage * cardsPerPage + cardsPerPage);
+  const urgentSignals = useMemo(
+    () =>
+      (signals ?? [])
+        .filter((s) => URGENT_LEVELS.has(SIGNAL_META[s.type].level))
+        .filter((s) => !resolvedOptimizations.has(s.type)),
+    [signals, resolvedOptimizations],
+  );
+
+  const optimizationItems: WorkflowInsightData[] = useMemo(() => {
+    if (signals && signals.length > 0) {
+      return signals
+        .filter((s) => OPTIM_LEVELS.has(SIGNAL_META[s.type].level))
+        .map((sig) => {
+          const meta = SIGNAL_META[sig.type];
+          return {
+            id: sig.type,
+            type: "optimization",
+            severity: "medium",
+            title: meta.label,
+            description: null,
+            fix: meta.recommendedAction,
+          } satisfies WorkflowInsightData;
+        });
+    }
+    return (workflow.insights ?? []).filter((i) => i.type === "optimization");
+  }, [signals, workflow.insights]);
+  const visibleOptimizations = optimizationItems.filter((o) => !resolvedOptimizations.has(o.id));
 
   const detailGraph = useMemo(() => buildDetailGraph(workflow), [workflow]);
   const hasBranches = detailGraph.branches && detailGraph.branches.length > 0 && detailGraph.branches[0].nodes.length > 0;
@@ -692,77 +648,82 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
           </div>
 
           <div className="space-y-7 mt-8">
-            <div>
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-1 h-3.5 rounded-full bg-red-400" />
-                  <span className="text-[11px] tracking-[0.08em] uppercase text-gray-400">
-                    Optimization Opportunities
-                  </span>
+            {urgentSignals.length > 0 && (
+              <div className="space-y-2">
+                {urgentSignals.map((sig) => {
+                  const meta = SIGNAL_META[sig.type];
+                  const isSecurity = meta.level === "security";
+                  return (
+                    <div
+                      key={sig.type}
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl"
+                      style={{
+                        background: isSecurity ? "#FCEBEB" : "#FAEEDA",
+                        border: `1px solid ${isSecurity ? "#F09595" : "#EF9F27"}`,
+                      }}
+                    >
+                      <span
+                        className="shrink-0 rounded-full"
+                        style={{
+                          width: 6,
+                          height: 6,
+                          background: isSecurity ? "#DC2626" : "#D97706",
+                        }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div
+                          className="text-[12px] font-medium"
+                          style={{ color: isSecurity ? "#991B1B" : "#633806" }}
+                        >
+                          {meta.label}
+                        </div>
+                        <div
+                          className="text-[11px] mt-0.5"
+                          style={{ color: isSecurity ? "#B91C1C" : "#854F0B", opacity: 0.85 }}
+                        >
+                          {meta.recommendedAction}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleMarkResolved(sig.type)}
+                        className="text-[16px] leading-none shrink-0 cursor-pointer transition-opacity hover:opacity-50"
+                        style={{ color: isSecurity ? "#991B1B" : "#633806" }}
+                        aria-label="Dismiss"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {visibleOptimizations.length > 0 && (
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-3.5 rounded-full bg-amber-400" />
+                    <span className="text-[11px] tracking-[0.08em] uppercase text-gray-400">
+                      Optimisation · {visibleOptimizations.length}
+                    </span>
+                  </div>
+                  <div className="flex-1 h-px bg-gray-100" />
                 </div>
-                <div className="flex-1 h-px bg-gray-100" />
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setCarouselPage((p) => Math.max(0, p - 1))}
-                    className="flex items-center justify-center w-8 h-8 rounded-full transition-all duration-150 cursor-pointer"
-                    style={{ border: "1px solid rgba(0,0,0,0.1)", opacity: canPrev ? 1 : 0.3 }}
-                    disabled={!canPrev}
-                  >
-                    <ChevronLeftIcon className="w-4 h-4 text-gray-500" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCarouselPage((p) => Math.min(totalPages - 1, p + 1))}
-                    className="flex items-center justify-center w-8 h-8 rounded-full transition-all duration-150 cursor-pointer"
-                    style={{ border: "1px solid rgba(0,0,0,0.1)", opacity: canNext ? 1 : 0.3 }}
-                    disabled={!canNext}
-                  >
-                    <ChevronRightIcon className="w-4 h-4 text-gray-500" />
-                  </button>
+                <div
+                  className="flex gap-3 overflow-x-auto pb-1"
+                  style={{ scrollbarWidth: "none" }}
+                >
+                  {visibleOptimizations.map((item) => (
+                    <OptimizationCard
+                      key={item.id}
+                      item={item}
+                      onMarkResolved={handleMarkResolved}
+                    />
+                  ))}
                 </div>
               </div>
-              {visibleOptimizations.length === 0 ? (
-                <div
-                  className="bg-white rounded-xl px-6 py-8 text-center text-[13px] text-gray-400"
-                  style={{ border: "1px solid rgba(0,0,0,0.07)" }}
-                >
-                  No optimization opportunities.
-                </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    {visibleCards.map((item) => (
-                      <OptimizationCard
-                        key={item.id}
-                        item={item}
-                        onHighlightNodes={handleHighlightNodes}
-                        onMarkResolved={handleMarkResolved}
-                        previewSectionRef={workflowPreviewRef}
-                      />
-                    ))}
-                  </div>
-                  {totalPages > 1 && (
-                    <div className="flex items-center justify-center gap-1.5 mt-4">
-                      {Array.from({ length: totalPages }).map((_, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => setCarouselPage(i)}
-                          className="rounded-full transition-all duration-200 cursor-pointer"
-                          style={{
-                            width: i === carouselPage ? 16 : 6,
-                            height: 6,
-                            borderRadius: i === carouselPage ? 3 : "50%",
-                            background: i === carouselPage ? "#f87171" : "#d1d5db",
-                          }}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+            )}
 
             <div ref={workflowPreviewRef}>
               <div className="flex items-center gap-3 mb-3">
@@ -812,12 +773,12 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
                         await navigator.clipboard.writeText(JSON.stringify(intent, null, 2));
                       } catch {}
                     }}
-                    className="text-[12px] text-gray-400 hover:text-gray-600 transition-colors cursor-default"
+                    className="text-[12px] text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
                   >
                     Export JSON
                   </button>
                   <button
-                    className="text-[12px] text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-50 transition-colors cursor-default"
+                    className="text-[12px] text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
                     style={{ border: "1px solid rgba(0,0,0,0.1)" }}
                   >
                     Edit

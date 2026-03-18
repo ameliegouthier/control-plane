@@ -143,7 +143,7 @@ export async function getAllWorkflowsFromDatabase(): Promise<Workflow[]> {
   const user = await getDemoUser();
   const dbWorkflows = await prisma.workflow.findMany({
     where: { userId: user.id },
-    include: { integration: true, workflowNodes: true },
+    include: { integration: true, workflowNodes: true, insights: true },
     orderBy: { updatedAt: "desc" },
   });
   return dbWorkflows.map((dbWf) => {
@@ -163,6 +163,14 @@ export async function getAllWorkflowsFromDatabase(): Promise<Workflow[]> {
         })),
       };
     }
+    workflow.insights = dbWf.insights.map((i) => ({
+      id: i.id,
+      type: i.type,
+      severity: i.severity,
+      title: i.title,
+      description: i.description,
+      fix: i.fix,
+    }));
     return workflow;
   });
 }

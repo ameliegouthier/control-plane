@@ -248,7 +248,7 @@ export default function WorkflowList({
                       <button
                         type="button"
                         aria-label={`Delete workflow ${wf.name}`}
-                        className="w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors"
+                        className="w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors cursor-pointer"
                         onClick={async () => {
                           if (
                             !window.confirm(

@@ -21,7 +21,10 @@ import { useProviderFilter } from "@/hooks/useProviderFilter";
 import KpiCards, { computeSystemHealth } from "./components/KpiCards";
 import SystemMap from "./components/SystemMap";
 import WorkflowList from "./components/WorkflowList";
-import ActionCenter, { type ActionItem } from "./components/ActionCenter";
+import ActionCenter, { type ActionItem, type SignalGroup } from "./components/ActionCenter";
+import { detectSignals } from "@/lib/signals/detectSignals";
+import type { Signal, SignalType, WorkflowWithSignals } from "@/lib/signals/types";
+import { SIGNAL_META, URGENT_LEVELS, OPTIM_LEVELS } from "@/lib/signals/signalMeta";
 
 type EnrichedWorkflow = WorkflowWithFullEnrichment & {
   tool: AutomationProvider;
@@ -68,6 +71,8 @@ export type OverviewClientProps = {
   initialDemoMode: boolean;
   /** Integration IDs to show Resync/Disconnect for (from DB integrations, not derived from workflows). */
   integrationIdsForSync?: string[];
+  /** AI-generated insights from WorkflowInsight DB table. */
+  workflowInsights?: { workflowId: string; type: string; severity: string; title: string; description: string | null; fix: string | null }[];
 };
 
 export type StatusFilter = "all" | "ok" | "broken" | "inactive";
@@ -77,6 +82,7 @@ export default function OverviewClient({
   workflows,
   initialDemoMode,
   integrationIdsForSync = [],
+  workflowInsights = [],
 }: OverviewClientProps): React.JSX.Element {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const { setWorkflows, filterByProviders } = useProviderFilter();
@@ -229,6 +235,55 @@ export default function OverviewClient({
   const resyncIntegrationIds = integrationIdsForSync;
   const deleteIntegrationIds = integrationIdsForSync;
 
+  const workflowsWithSignals = useMemo(() => {
+    const withGraphs = enriched.filter((wf) => {
+      const nodes = (wf as { graph?: { nodes?: unknown[] } }).graph?.nodes;
+      return Array.isArray(nodes) && nodes.length > 0;
+    });
+    const prepared = withGraphs.map((wf) => ({
+      ...wf,
+      signals: [] as Signal[],
+    })) as unknown as WorkflowWithSignals[];
+    try {
+      return detectSignals(prepared);
+    } catch {
+      return prepared;
+    }
+  }, [enriched]);
+
+  const signalGroupsAll: SignalGroup[] = useMemo(() => {
+    const map = new Map<SignalType, SignalGroup>();
+    for (const wf of workflowsWithSignals) {
+      for (const signal of wf.signals) {
+        const meta = SIGNAL_META[signal.type];
+        if (!meta) continue;
+        const existing = map.get(signal.type);
+        if (existing) {
+          existing.workflows.push({ id: wf.id, name: wf.name });
+        } else {
+          map.set(signal.type, {
+            signalType: signal.type,
+            label: meta.label,
+            level: meta.level,
+            recommendedAction: meta.recommendedAction,
+            workflows: [{ id: wf.id, name: wf.name }],
+          });
+        }
+      }
+    }
+    return Array.from(map.values());
+  }, [workflowsWithSignals]);
+
+  const urgentSignalGroups = useMemo(
+    () => signalGroupsAll.filter((g) => URGENT_LEVELS.has(g.level)),
+    [signalGroupsAll],
+  );
+
+  const optimizationSignalGroups = useMemo(
+    () => signalGroupsAll.filter((g) => OPTIM_LEVELS.has(g.level)),
+    [signalGroupsAll],
+  );
+
   const fullWorkflowsForTable = useMemo(() => {
     const ids = new Set(filtered.map((wf) => wf.id));
     return workflows.filter((w) => ids.has(w.id));
@@ -278,20 +333,10 @@ export default function OverviewClient({
       <div className="ml-[80px] px-8 py-6">
         <div className="max-w-[1360px] mx-auto">
           {/* Page Header */}
-          <div className="flex items-end justify-between mb-7">
-            <div>
-              <div className="flex items-center gap-2.5">
-                <h1 className="text-gray-900" style={{ fontSize: "20px", lineHeight: 1.3 }}>
-                  Governance
-                </h1>
-                <Badge variant={allSystemsOk ? "success" : "warning"}>
-                  {allSystemsOk ? "All systems operational" : "Needs attention"}
-                </Badge>
-              </div>
-              <p className="mt-1 text-[12px] text-gray-500">
-                Discover, understand, and fix your automation system.
-              </p>
-            </div>
+          <div className="flex items-center justify-between mb-7">
+            <Badge variant={allSystemsOk ? "success" : "warning"} className="px-3 py-1.5 text-[13px]">
+              {allSystemsOk ? "All systems operational" : "Needs attention"}
+            </Badge>
 
             <div className="flex flex-col items-end gap-1.5">
               <div className="flex items-center gap-2">
@@ -398,9 +443,47 @@ export default function OverviewClient({
 
           {/* Dashboard Sections */}
           <div className="space-y-7">
+            {/* System Health Banner */}
+            {urgentSignalGroups.length > 0 && (() => {
+              const totalIssues = urgentSignalGroups.reduce((sum, g) => sum + g.workflows.length, 0);
+              const topGroups = [...urgentSignalGroups]
+                .sort((a, b) => b.workflows.length - a.workflows.length)
+                .slice(0, 3);
+              const subtitle = topGroups
+                .map((g) => `${g.workflows.length} ${g.label.toLowerCase()}${g.workflows.length > 1 ? "s" : ""}`)
+                .join(" · ");
+              return (
+                <div
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl"
+                  style={{ background: "#FCEBEB", border: "1px solid #F09595" }}
+                >
+                  <span
+                    className="shrink-0 rounded-full"
+                    style={{ width: 6, height: 6, background: "#DC2626" }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] font-medium" style={{ color: "#791F1F" }}>
+                      {totalIssues} urgent issue{totalIssues > 1 ? "s" : ""} across your system
+                    </div>
+                    <div className="text-[11px] mt-0.5" style={{ color: "#A32D2D" }}>
+                      {subtitle}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById("action-center")?.scrollIntoView({ behavior: "smooth" })}
+                    className="text-[12px] font-medium shrink-0 cursor-pointer transition-opacity hover:opacity-70"
+                    style={{ color: "#791F1F" }}
+                  >
+                    Fix this first →
+                  </button>
+                </div>
+              );
+            })()}
+
             {/* Section 1: System Overview */}
             <section>
-              <SectionHeader title="System Overview" accent="bg-gray-300" />
+            { /* <SectionHeader title="System Overview" accent="bg-gray-300" /> */ }
               <KpiCards
                 totalWorkflows={totalWorkflows}
                 connections={connectionCount}
@@ -417,10 +500,14 @@ export default function OverviewClient({
             <SystemMap workflows={filtered} />
 
             {/* Section 3: Action Center */}
-            <ActionCenter
-              urgentItems={urgentActions}
-              optimizationItems={optimizationActions}
-            />
+            <div id="action-center">
+              <ActionCenter
+                urgentItems={urgentActions}
+                optimizationItems={optimizationActions}
+                urgentSignalGroups={urgentSignalGroups}
+                optimizationSignalGroups={optimizationSignalGroups}
+              />
+            </div>
 
             {/* Section 4: All Workflows */}
             <section>

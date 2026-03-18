@@ -68,18 +68,12 @@ export default function KpiCards({
   const workflowsDesc = `${activeWorkflows} active · ${idleCount} idle${brokenCount > 0 ? ` · ${brokenCount} broken` : ""}`;
 
   return (
-    <div className="grid grid-cols-4 gap-2.5">
+    <div className="grid grid-cols-3 gap-2.5">
       <MetricCard
         title="Workflows"
         value={String(totalWorkflows)}
         description={workflowsDesc}
         icon={<WorkflowsIcon />}
-      />
-      <MetricCard
-        title="Connections"
-        value={String(connections)}
-        description={connectionNames}
-        icon={<ConnectionsIcon />}
       />
       <MetricCard
         title="System Health"
@@ -92,7 +86,6 @@ export default function KpiCards({
         title="Failures (24h)"
         value={String(executionFailures)}
         description={executionFailures > 0 ? "Requires review" : "No failures"}
-        icon={<FailuresIcon />}
         valueClassName={executionFailures > 0 ? "text-red-600" : "text-gray-900"}
       />
     </div>
