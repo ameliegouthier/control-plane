@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const storedState = cookieStore.get("make_oauth_state")?.value;
 
   // Clear the state cookie to avoid reuse.

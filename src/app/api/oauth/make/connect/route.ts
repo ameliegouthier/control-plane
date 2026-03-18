@@ -31,7 +31,7 @@ export async function GET(_req: NextRequest) {
 
   const state = crypto.randomUUID();
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   cookieStore.set("make_oauth_state", state, {
     httpOnly: true,
     sameSite: "lax",
