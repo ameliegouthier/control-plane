@@ -11,4 +11,4 @@ export {
   UNKNOWN_PROVIDER_CONFIG,
   getProviderConfig,
   type ProviderConfig,
-} from "./provider-config.tsx";
+} from "./provider-config";
