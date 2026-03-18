@@ -51,14 +51,8 @@ export function isDestination(service: string): boolean {
 }
 
 function getGraphNodes(workflow: WorkflowWithSignals): GraphNode[] {
-  const rawNodes = Array.isArray((workflow as any).graph?.nodes)
-    ? ((workflow as any).graph.nodes as Array<{
-        id?: unknown;
-        service?: unknown;
-        type?: unknown;
-        category?: unknown;
-        action?: unknown;
-      }>)
+  const rawNodes = workflow.graph && Array.isArray(workflow.graph.nodes)
+    ? workflow.graph.nodes
     : [];
 
   return rawNodes

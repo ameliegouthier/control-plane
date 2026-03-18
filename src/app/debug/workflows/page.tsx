@@ -93,7 +93,7 @@ function buildDebugData(
   );
 
   const validForSignals = workflowsForSignals.filter((wf) => {
-    if (!Array.isArray(wf.graph?.nodes) || wf.graph.nodes.length === 0) {
+    if (!wf.graph || !Array.isArray(wf.graph.nodes) || wf.graph.nodes.length === 0) {
       if (process.env.NODE_ENV === "development") {
         throw new Error(
           `Workflow ${wf.id} not normalized before signal detection`,

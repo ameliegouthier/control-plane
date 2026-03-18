@@ -1,4 +1,5 @@
 import type { WorkflowWithFullEnrichment } from "@/lib/enrichment";
+import type { WorkflowGraph } from "@/lib/providers/types";
 
 /** Display categories for the debug page: Security, Alerts, Optimization. */
 export type SignalCategory = "security" | "alerts" | "optimization";
@@ -39,6 +40,11 @@ export type Signal = {
 export type SignalSummary = "clean-workflow" | "signals-detected";
 
 export type WorkflowWithSignals = WorkflowWithFullEnrichment & {
+  /**
+   * Normalized graph structure (nodes + edges). Required for signal detection.
+   * Populated when merging normalized Workflow with enrichment data.
+   */
+  graph?: WorkflowGraph;
   /**
    * Structured detections produced by the automation analysis engine.
    */
