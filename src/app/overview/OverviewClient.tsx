@@ -16,6 +16,7 @@ import {
   type RawWorkflow,
 } from "@/lib/enrichment";
 import { getDashboardScroll, clearDashboardScroll } from "@/lib/dashboard-scroll";
+import type { WorkflowLike } from "@/lib/provider-filter";
 import { SectionHeader, Badge } from "@/components/ui";
 import { useProviderFilter } from "@/hooks/useProviderFilter";
 import KpiCards, { computeSystemHealth } from "./components/KpiCards";
@@ -26,7 +27,7 @@ import { detectSignals } from "@/lib/signals/detectSignals";
 import type { Signal, SignalType, WorkflowWithSignals } from "@/lib/signals/types";
 import { SIGNAL_META, URGENT_LEVELS, OPTIM_LEVELS } from "@/lib/signals/signalMeta";
 
-type EnrichedWorkflow = WorkflowWithFullEnrichment & {
+type EnrichedWorkflow = WorkflowWithFullEnrichment & WorkflowLike & {
   tool: AutomationProvider;
   graph?: WorkflowGraph;
 };
