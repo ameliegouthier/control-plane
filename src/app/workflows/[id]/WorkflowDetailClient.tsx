@@ -536,20 +536,6 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
   );
 
   const [resolvedOptimizations, setResolvedOptimizations] = useState<Set<string>>(new Set());
-  const [intentExpanded, setIntentExpanded] = useState(false);
-  const workflowPreviewRef = useRef<HTMLDivElement>(null);
-
-  const handleIntentUpdate = useCallback(
-    (next: WorkflowIntent) => setIntentOverrides((prev) => ({ ...prev, [workflowId]: next })),
-    [workflowId]
-  );
-  const handleIntentReset = useCallback(() => {
-    setIntentOverrides((prev) => {
-      const next = { ...prev };
-      delete next[workflowId];
-      return next;
-    });
-  }, [workflowId]);
   const handleMarkResolved = useCallback((id: string) => {
     setResolvedOptimizations((prev) => new Set(prev).add(id));
   }, []);
@@ -580,8 +566,6 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
     );
   }
 
-  const trigger = getTriggerSummary(workflow.graph);
-
   const urgentSignals = useMemo(
     () =>
       (signals ?? [])
@@ -608,10 +592,23 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
     }
     return (workflow.insights ?? []).filter((i) => i.type === "optimization");
   }, [signals, workflow.insights]);
-  const visibleOptimizations = optimizationItems.filter((o) => !resolvedOptimizations.has(o.id));
 
-  const detailGraph = useMemo(() => buildDetailGraph(workflow), [workflow]);
-  const hasBranches = detailGraph.branches && detailGraph.branches.length > 0 && detailGraph.branches[0].nodes.length > 0;
+  const formattedDate = new Date(workflow.updatedAt).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const riskLevel =
+    urgentSignals.length >= 2 ? "High ↑" : urgentSignals.length === 1 ? "Med" : "Low";
+  const riskStyle =
+    urgentSignals.length >= 2
+      ? "bg-orange-50 text-orange-700 border-orange-100"
+      : urgentSignals.length === 1
+      ? "bg-amber-50 text-amber-700 border-amber-100"
+      : "bg-emerald-50 text-emerald-700 border-emerald-100";
 
   return (
     <div className="bg-[#fafafa] min-h-screen">
@@ -625,221 +622,179 @@ export default function WorkflowDetailClient({ workflow: workflowProp, workflowI
             Back to dashboard
           </Link>
 
-          <div className="flex items-start justify-between mb-1">
-            <div>
-              <h1 className="text-gray-900 tracking-tight" style={{ fontSize: "20px", lineHeight: 1.3 }}>
-                {workflow.name}
-              </h1>
-              <div className="flex items-center gap-3 mt-1.5">
-                <span className="text-[12px] text-gray-400">
-                  Updated {new Date(workflow.updatedAt).toLocaleDateString("fr-FR", {
-                  day: "2-digit",
-                  month: "2-digit",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+          {/* Header */}
+          <div className="flex items-start justify-between mb-5">
+            <div className="flex flex-col gap-1">
+              <h1 className="text-[20px] font-medium text-gray-900">{workflow.name}</h1>
+              <div className="flex items-center gap-2 text-[12px] text-gray-400">
+                <span>Updated {formattedDate}</span>
+                <span className="w-1 h-1 rounded-full bg-gray-300" />
+                <span>
+                  {urgentSignals.length} issue{urgentSignals.length !== 1 ? "s" : ""}
                 </span>
               </div>
             </div>
-            <span className={`text-[11px] px-2.5 py-1 rounded-full border ${statusConfig[workflow.active ? "active" : "inactive"].bg} ${statusConfig[workflow.active ? "active" : "inactive"].text} ${statusConfig[workflow.active ? "active" : "inactive"].border}`}>
-              {statusConfig[workflow.active ? "active" : "inactive"].label}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+                {workflow.provider}
+              </span>
+              <span className={`text-[11px] font-medium px-2.5 py-1 rounded-full border ${riskStyle}`}>
+                Risk: {riskLevel}
+              </span>
+              <span
+                className={`text-[11px] font-medium px-2.5 py-1 rounded-full ${
+                  workflow.active
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                    : "bg-gray-100 text-gray-500 border border-gray-200"
+                }`}
+              >
+                {workflow.active ? "Active" : "Idle"}
+              </span>
+            </div>
           </div>
 
-          <div className="space-y-7 mt-8">
-            {urgentSignals.length > 0 && (
-              <div className="space-y-2">
-                {urgentSignals.map((sig) => {
-                  const meta = SIGNAL_META[sig.type];
-                  const isSecurity = meta.level === "security";
-                  return (
-                    <div
-                      key={sig.type}
-                      className="flex items-center gap-3 px-4 py-3 rounded-xl"
-                      style={{
-                        background: isSecurity ? "#FCEBEB" : "#FAEEDA",
-                        border: `1px solid ${isSecurity ? "#F09595" : "#EF9F27"}`,
-                      }}
-                    >
-                      <span
-                        className="shrink-0 rounded-full"
-                        style={{
-                          width: 6,
-                          height: 6,
-                          background: isSecurity ? "#DC2626" : "#D97706",
-                        }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div
-                          className="text-[12px] font-medium"
-                          style={{ color: isSecurity ? "#991B1B" : "#633806" }}
-                        >
-                          {meta.label}
-                        </div>
-                        <div
-                          className="text-[11px] mt-0.5"
-                          style={{ color: isSecurity ? "#B91C1C" : "#854F0B", opacity: 0.85 }}
-                        >
-                          {meta.recommendedAction}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleMarkResolved(sig.type)}
-                        className="text-[16px] leading-none shrink-0 cursor-pointer transition-opacity hover:opacity-50"
-                        style={{ color: isSecurity ? "#991B1B" : "#633806" }}
-                        aria-label="Dismiss"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {visibleOptimizations.length > 0 && (
-              <div>
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1 h-3.5 rounded-full bg-amber-400" />
-                    <span className="text-[11px] tracking-[0.08em] uppercase text-gray-400">
-                      Optimisation · {visibleOptimizations.length}
-                    </span>
-                  </div>
-                  <div className="flex-1 h-px bg-gray-100" />
-                </div>
+          {/* Urgent signals */}
+          {urgentSignals.length > 0 && (
+            <div className="mb-4">
+              {urgentSignals.map((signal) => (
                 <div
-                  className="flex gap-3 overflow-x-auto pb-1"
-                  style={{ scrollbarWidth: "none" }}
+                  key={signal.type}
+                  className="flex items-center justify-between px-4 py-3 rounded-lg bg-red-50 border-t border-r border-b border-red-100 mb-2"
+                  style={{ borderLeft: "2px solid #f87171" }}
                 >
-                  {visibleOptimizations.map((item) => (
-                    <OptimizationCard
-                      key={item.id}
-                      item={item}
-                      onMarkResolved={handleMarkResolved}
-                    />
-                  ))}
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                    <div>
+                      <div className="text-[12px] font-medium text-red-800">
+                        {SIGNAL_META[signal.type].label}
+                      </div>
+                      <div className="text-[11px] text-red-600 mt-0.5">
+                        {SIGNAL_META[signal.type].recommendedAction}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleMarkResolved(signal.type)}
+                    className="text-[11px] font-medium px-3 py-1.5 rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 transition-colors shrink-0 cursor-pointer"
+                  >
+                    Fix this →
+                  </button>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
+          )}
 
-            <div ref={workflowPreviewRef}>
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-1 h-3.5 rounded-full bg-indigo-400" />
-                  <span className="text-[11px] tracking-[0.08em] uppercase text-gray-400">
-                    Workflow Preview
-                  </span>
-                </div>
-                <div className="flex-1 h-px bg-gray-100" />
+          {/* 2-column layout */}
+          <div className="grid grid-cols-2 gap-3 items-start">
+
+            {/* Left column: Preview only */}
+            <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-50 flex items-center gap-2">
+                <span className="w-[3px] h-3.5 rounded-sm bg-indigo-400 flex-shrink-0" />
+                <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-gray-900">
+                  Workflow preview
+                </span>
               </div>
-              <div
-                className="bg-white rounded-xl w-full h-fit"
-                style={{ border: "1px solid rgba(0,0,0,0.07)" }}
-              >
-                <div className="overflow-x-auto w-full h-fit">
-                  {/* Original linear/branched graph preview kept for easy restore:
-                  <div className="min-w-max px-32 py-12">
-                    {hasBranches ? (
-                      <WorkflowGraphPreview nodes={detailGraph.nodes} branches={detailGraph.branches} />
-                    ) : (
-                      <WorkflowGraphPreviewLinear nodes={detailGraph.nodes} />
-                    )}
-                  </div>
-                  */}
-                  <div className="min-w-max px-8 py-6 h-fit">
-                    <WorkflowGraphReactFlow workflow={workflow} />
-                  </div>
-                </div>
+              <div className="p-5 min-h-[200px] overflow-x-auto">
+                <WorkflowGraphReactFlow workflow={workflow} />
               </div>
             </div>
 
-            <div>
-              <div className="flex items-center gap-3 mb-3">
+            {/* Right column: Intent + Optimization */}
+            <div className="flex flex-col gap-3">
+
+            {/* Intent */}
+            <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-1 h-3.5 rounded-full bg-amber-400" />
-                  <span className="text-[11px] tracking-[0.08em] uppercase text-gray-400">
-                    Intent (Draft)
+                  <span className="w-[3px] h-3.5 rounded-sm bg-indigo-400 flex-shrink-0" />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-gray-900">
+                    Intent
                   </span>
-                </div>
-                <div className="flex-1 h-px bg-gray-100" />
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(JSON.stringify(intent, null, 2));
-                      } catch {}
-                    }}
-                    className="text-[12px] text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-                  >
-                    Export JSON
-                  </button>
-                  <button
-                    className="text-[12px] text-gray-600 px-2.5 py-1 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
-                    style={{ border: "1px solid rgba(0,0,0,0.1)" }}
-                  >
-                    Edit
-                  </button>
-                </div>
-              </div>
-              <div
-                className="bg-white rounded-xl overflow-hidden"
-                style={{ border: "1px solid rgba(0,0,0,0.07)" }}
-              >
-                <div className="px-6 py-5">
-                  <IntentField label="Summary" value={intent.summary} />
-                  <div className="flex items-center gap-4 mt-4 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] tracking-[0.08em] uppercase text-amber-600">Category</span>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
-                        {intent.category}
-                      </span>
-                    </div>
-                    <div className="h-3 w-px bg-gray-100" />
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {intent.tags.map((tag) => (
-                        <span key={tag} className="text-[11px] px-2 py-0.5 rounded-full bg-gray-50 text-gray-500 border border-gray-100">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setIntentExpanded((e) => !e)}
-                  className="w-full flex items-center justify-center gap-1.5 py-2.5 cursor-pointer transition-colors duration-150 hover:bg-gray-50"
-                  style={{ borderTop: "1px solid rgba(0,0,0,0.05)" }}
+                  className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
                 >
-                  <span className="text-[11px] text-gray-400">
-                    {intentExpanded ? "Hide details" : "Show details"}
-                  </span>
-                  <ChevronDownIcon
-                    className="w-3 h-3 text-gray-400 transition-transform duration-200"
-                    style={{ transform: intentExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
-                  />
+                  Edit
                 </button>
-                <div
-                  className="overflow-hidden transition-all duration-200"
-                  style={{
-                    maxHeight: intentExpanded ? 400 : 0,
-                    opacity: intentExpanded ? 1 : 0,
-                  }}
-                >
-                  <div className="px-6 pb-5 pt-3" style={{ borderTop: "1px solid rgba(0,0,0,0.05)" }}>
-                    <div className="grid grid-cols-2 gap-x-8 gap-y-4">
-                      <IntentField label="Problem solved" value={intent.problemSolved} />
-                      <IntentField label="Input" value={intent.input} />
-                      <IntentField label="Processing" value={intent.processing} />
-                      <IntentField label="Output" value={intent.output} />
-                    </div>
+              </div>
+              <div className="p-4 flex flex-col gap-4">
+                {/* Summary + tags */}
+                <div className="pb-4 border-b border-gray-50">
+                  <p className="text-[13px] text-gray-600 leading-relaxed">{intent.summary}</p>
+                  <div className="flex gap-1.5 flex-wrap mt-2.5">
+                    <span className="text-[11px] px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-medium">
+                      {intent.category}
+                    </span>
+                    {intent.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-500"
+                      >
+                        {tag}
+                      </span>
+                    ))}
                   </div>
+                </div>
+
+                {/* Fields grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  {[
+                    { label: "Problem solved", value: intent.problemSolved },
+                    { label: "Input", value: intent.input },
+                    { label: "Processing", value: intent.processing },
+                    { label: "Output", value: intent.output },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex flex-col gap-1">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-gray-300">
+                        {label}
+                      </span>
+                      <span className="text-[12px] text-gray-500 leading-relaxed">{value}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
+
+            {/* Optimization */}
+            {optimizationItems.filter((i) => !resolvedOptimizations.has(i.id)).length > 0 && (
+              <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-50 flex items-center gap-2">
+                  <span className="w-[3px] h-3.5 rounded-sm bg-amber-400 flex-shrink-0" />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-gray-900">
+                    Optimization · {optimizationItems.filter((i) => !resolvedOptimizations.has(i.id)).length}
+                  </span>
+                </div>
+                <div className="px-4 py-3 flex flex-col gap-3">
+                  {optimizationItems
+                    .filter((item) => !resolvedOptimizations.has(item.id))
+                    .map((item) => (
+                      <div key={item.id} className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-[12px] font-medium text-amber-800">
+                            {item.title}
+                          </div>
+                          <div className="text-[11px] text-amber-600 mt-0.5">
+                            {item.fix ?? item.description}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleMarkResolved(item.id)}
+                          className="text-[11px] font-medium px-3 py-1.5 rounded-md border border-amber-200 bg-white text-amber-600 hover:bg-amber-50 transition-colors shrink-0 cursor-pointer"
+                        >
+                          Mark resolved
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            </div>{/* end right column */}
+
           </div>
         </div>
       </div>

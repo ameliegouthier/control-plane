@@ -36,7 +36,10 @@ export default async function RootLayout({
     <html lang="en">
       <body className="bg-[#fafafa] antialiased">
         <ProviderFilterProvider initialProvidersFromIntegrations={providersFromIntegrations}>
-          <Sidebar />
+          <Sidebar
+            integrationIds={(integrations as { id: string }[]).map((i) => i.id)}
+            initialDemoMode={demoMode}
+          />
           {children}
         </ProviderFilterProvider>
       </body>

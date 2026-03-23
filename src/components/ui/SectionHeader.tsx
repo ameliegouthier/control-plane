@@ -18,15 +18,15 @@ export function SectionHeader({
   return (
     <div className={`flex items-center gap-3 mb-3 ${className}`}>
       <div className="flex items-center gap-2">
-        <div className={`w-1 h-3.5 rounded-full ${accent}`} />
-        <span className="text-[11px] tracking-[0.08em] uppercase text-gray-400">
+        <span className={`w-[3px] h-[14px] rounded-sm flex-shrink-0 ${accent}`} />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-gray-900">
           {title}
         </span>
+        {count != null && (
+          <span className="text-[11px] text-gray-400">{count}</span>
+        )}
       </div>
       <div className="flex-1 h-px bg-gray-100" />
-      {count != null && (
-        <span className="text-[11px] text-gray-400">{count}</span>
-      )}
       {children}
     </div>
   );

@@ -52,6 +52,32 @@ function mockOwner(id: string): string {
   return names[i];
 }
 
+type RiskLevel = "high" | "medium" | "low";
+
+const RISK_BADGE_CONFIG: Record<RiskLevel, { label: string; color: string }> = {
+  high:   { label: "High ↑", color: "text-red-600" },
+  medium: { label: "Med",    color: "text-orange-500" },
+  low:    { label: "Low",    color: "text-emerald-600" },
+};
+
+function RiskBadge({ level }: { level: RiskLevel }) {
+  const { label, color } = RISK_BADGE_CONFIG[level];
+  return <span className={`text-[11px] font-medium ${color}`}>{label}</span>;
+}
+
+function computeRiskLevel(wf: EnrichedWorkflow): RiskLevel {
+  const hasSecurityIssue = (wf as { issuesEnriched?: { category: string }[] }).issuesEnriched?.some(
+    (i) => i.category === "security",
+  );
+  if (hasSecurityIssue) return "high";
+
+  const n = wf.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  const runs = (n % 9000) + 100;
+  if (!wf.active && runs > 1000) return "medium";
+
+  return "low";
+}
+
 function StatusCell({ active, health }: { active: boolean; health: string }) {
   if (!active) {
     return (
@@ -209,6 +235,7 @@ export default function WorkflowList({
               <th className="px-4 py-2.5 text-left text-[10px] uppercase tracking-wider text-gray-400">Name</th>
               <th className="px-4 py-2.5 text-left text-[10px] uppercase tracking-wider text-gray-400">Problem solved</th>
               <th className="px-4 py-2.5 text-left text-[10px] uppercase tracking-wider text-gray-400">Tool</th>
+              <th className="px-4 py-2.5 text-left text-[10px] uppercase tracking-wider text-gray-400">Risk</th>
               <th className="px-4 py-2.5 text-left text-[10px] uppercase tracking-wider text-gray-400">Status</th>
               <th className="px-4 py-2.5 text-left text-[10px] uppercase tracking-wider text-gray-400">Runs</th>
               <th className="px-4 py-2.5 text-left text-[10px] uppercase tracking-wider text-gray-400">Last run</th>
@@ -219,7 +246,7 @@ export default function WorkflowList({
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-[13px] text-gray-400">
+                <td colSpan={9} className="px-4 py-10 text-center text-[13px] text-gray-400">
                   No workflows match the current filters.
                 </td>
               </tr>
@@ -241,6 +268,7 @@ export default function WorkflowList({
                     </td>
                     <td className="px-4 py-2.5 text-[12px] text-gray-400">{problemSolvedShort}</td>
                     <td className="px-4 py-2.5"><ToolBadge tool={wf.tool} /></td>
+                    <td className="px-4 py-2.5"><RiskBadge level={computeRiskLevel(wf)} /></td>
                     <td className="px-4 py-2.5"><StatusCell active={wf.active} health={wf.enrichment.health} /></td>
                     <td className="px-4 py-2.5 text-[12px] text-gray-500 tabular-nums">{mockRuns(wf.id)}</td>
                     <td className="px-4 py-2.5 text-[12px] text-gray-400">{formatRelativeTime(wf.lastExecutionDate)}</td>

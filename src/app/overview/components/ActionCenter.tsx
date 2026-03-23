@@ -1,11 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { useState } from "react";
 import Link from "next/link";
 import { saveDashboardScroll } from "@/lib/dashboard-scroll";
 import type { EnrichedIssue } from "@/lib/enrichment";
-import { SectionHeader, AlertTriangleIcon, OptimizationIcon, ActionListItem, ExternalLinkIcon } from "@/components/ui";
+import { SectionHeader } from "@/components/ui";
 import type { SignalType } from "@/lib/signals/types";
 import type { SignalLevel } from "@/lib/signals/signalMeta";
 
@@ -33,11 +31,93 @@ export interface SignalGroup {
 const MAX_URGENT_ITEMS = 20;
 const MAX_OPTIMIZATION_ITEMS = 5;
 
+const ISSUE_DESCRIPTIONS: Record<string, string> = {
+  public_webhook:
+    "Ces webhooks sont accessibles publiquement — n'importe qui peut déclencher ces workflows. Ajoute une clé d'API ou un secret.",
+  missing_authentication:
+    "Ces workflows appellent des services externes sans credentials configurés. Ils peuvent échouer silencieusement en production.",
+  no_trigger:
+    "Ces workflows n'ont pas de trigger configuré — ils ne s'exécutent jamais automatiquement.",
+  external_webhook:
+    "La source de ce webhook externe n'est pas vérifiée. Ajoute une validation de signature.",
+  duplicate_workflow:
+    "Ces workflows font la même chose. Consolide-les en un seul workflow réutilisable.",
+  orphan_service:
+    "Ces workflows connectent des services qui ne sont plus utilisés. Nettoie les intégrations mortes.",
+  too_many_integrations:
+    "Ces workflows connectent trop de services en série. Considère de les découper en workflows plus simples.",
+};
+
 function formatIssueType(type: string): string {
   return type
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+function IssueCard({
+  label,
+  count,
+  issueType,
+  fallbackDescription,
+  workflows,
+  variant,
+}: {
+  label: string;
+  count: number;
+  issueType: string;
+  fallbackDescription: string;
+  workflows: { id: string; name: string }[];
+  variant: "urgent" | "optimization";
+}) {
+  const isUrgent = variant === "urgent";
+  const description = ISSUE_DESCRIPTIONS[issueType] ?? fallbackDescription;
+  const topWorkflows = workflows.slice(0, 2);
+  const remaining = workflows.length - 2;
+  const topNames = topWorkflows.map((wf) => wf.name).join(", ");
+
+  return (
+    <div
+      className="bg-card rounded-lg px-4 py-3"
+      style={{
+        borderTop: "1px solid rgba(0,0,0,0.06)",
+        borderRight: "1px solid rgba(0,0,0,0.06)",
+        borderBottom: "1px solid rgba(0,0,0,0.06)",
+        borderLeft: isUrgent ? "2px solid #f87171" : "2px solid #fbbf24",
+      }}
+    >
+      <div className="text-[13px] font-medium text-foreground">
+        {label}
+        {count > 1 && (
+          <span className="ml-1.5 text-[11px] text-muted-foreground font-normal">
+            · {count}
+          </span>
+        )}
+      </div>
+      <p className="text-[12px] text-gray-500 leading-relaxed mt-1.5 mb-3">
+        {description}
+      </p>
+      <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
+        <div className="max-w-[65%]">
+          <span className="text-[12px] text-gray-500 font-medium">
+            {topNames}
+            {remaining > 0 && ` +${remaining} more`}
+          </span>
+        </div>
+        <Link
+          href={`/workflows/${workflows[0].id}`}
+          onClick={saveDashboardScroll}
+          className={`text-[11px] font-medium px-3 py-1.5 rounded-md border cursor-pointer transition-colors ${
+            isUrgent
+              ? "border-red-200 text-red-600 bg-white hover:bg-red-50"
+              : "border-amber-200 text-amber-600 bg-white hover:bg-amber-50"
+          }`}
+        >
+          {isUrgent ? "Fix this →" : "Review →"}
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 function SectionBlock({
@@ -67,87 +147,34 @@ function SectionBlock({
       {items.length === 0 ? (
         <div
           className="bg-white rounded-lg px-4 py-8 text-center"
-          style={{ border: '1px solid rgba(0,0,0,0.06)' }}
+          style={{ border: "1px solid rgba(0,0,0,0.06)" }}
         >
           <p className="text-[12px] text-gray-400">{emptyMessage}</p>
         </div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {displayItems.map(({ workflow, topIssue }) => {
-            const impact = topIssue?.copy?.impact ?? "This workflow needs attention.";
-            const issueTypeLabel = topIssue ? formatIssueType(topIssue.type) : "Issue";
-            const rowTitle = isUrgent ? (topIssue?.type === "broken" ? "Broken workflow" : issueTypeLabel) : issueTypeLabel;
-            const rowDescription = `${workflow.name} — ${impact}`;
-            const rowIcon = isUrgent
-              ? <AlertTriangleIcon className="w-3.5 h-3.5" />
-              : <OptimizationIcon className="w-3.5 h-3.5" />;
+            const label = topIssue
+              ? isUrgent && topIssue.type === "broken"
+                ? "Broken workflow"
+                : formatIssueType(topIssue.type)
+              : "Issue";
+            const fallback = topIssue?.copy?.impact ?? "This workflow needs attention.";
             return (
-              <ActionListItem
+              <IssueCard
                 key={workflow.id}
-                href={`/workflows/${workflow.id}`}
-                icon={rowIcon}
-                title={rowTitle}
-                description={rowDescription}
+                label={label}
+                count={1}
+                issueType={topIssue?.type ?? ""}
+                fallbackDescription={fallback}
+                workflows={[{ id: workflow.id, name: workflow.name }]}
                 variant={variant}
-                onClick={saveDashboardScroll}
               />
             );
           })}
         </div>
       )}
     </div>
-  );
-}
-
-const VARIANT_CONFIG: Record<"urgent" | "optimization", { iconBg: string; iconText: string; iconBorder: string }> = {
-  urgent: { iconBg: "bg-red-50", iconText: "text-red-600", iconBorder: "border-red-100" },
-  optimization: { iconBg: "bg-amber-50", iconText: "text-amber-700", iconBorder: "border-amber-100" },
-};
-
-function ExpandableGroupRow({
-  icon,
-  title,
-  description,
-  variant,
-  isExpanded,
-  onToggle,
-  noBorder = false,
-}: {
-  icon: ReactNode;
-  title: string;
-  description: string;
-  variant: "urgent" | "optimization";
-  isExpanded: boolean;
-  onToggle: () => void;
-  noBorder?: boolean;
-}) {
-  const { iconBg, iconText, iconBorder } = VARIANT_CONFIG[variant];
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className="w-full flex items-center gap-3 px-3.5 py-3 bg-card rounded-lg hover:shadow-sm transition-all duration-150 cursor-pointer text-left"
-      style={noBorder ? undefined : { border: "1px solid rgba(0,0,0,0.06)" }}
-    >
-      <div className={`w-7 h-7 rounded-md ${iconBg} ${iconText} flex items-center justify-center shrink-0 border ${iconBorder}`}>
-        {icon}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] text-foreground">{title}</div>
-        <div className="text-[11px] text-muted-foreground truncate">{description}</div>
-      </div>
-      <svg
-        className={`w-3.5 h-3.5 text-muted-foreground/30 shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
-    </button>
   );
 }
 
@@ -166,23 +193,6 @@ function SignalGroupBlock({
   const displayGroups = groups.slice(0, maxItems);
   const isUrgent = variant === "urgent";
   const dotColor = isUrgent ? "bg-red-500" : "bg-amber-500";
-  const icon = isUrgent
-    ? <AlertTriangleIcon className="w-3.5 h-3.5" />
-    : <OptimizationIcon className="w-3.5 h-3.5" />;
-
-  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set());
-
-  const toggleExpand = (signalType: string) => {
-    setExpandedTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(signalType)) {
-        next.delete(signalType);
-      } else {
-        next.add(signalType);
-      }
-      return next;
-    });
-  };
 
   return (
     <div>
@@ -195,71 +205,23 @@ function SignalGroupBlock({
       {groups.length === 0 ? (
         <div
           className="bg-white rounded-lg px-4 py-8 text-center"
-          style={{ border: '1px solid rgba(0,0,0,0.06)' }}
+          style={{ border: "1px solid rgba(0,0,0,0.06)" }}
         >
           <p className="text-[12px] text-gray-400">{emptyMessage}</p>
         </div>
       ) : (
-        <div className="space-y-1.5">
-          {displayGroups.map((group) => {
-            const isMulti = group.workflows.length > 1;
-            const rowTitle = isMulti
-              ? `${group.label} · ${group.workflows.length} workflows`
-              : group.label;
-            const isExpanded = expandedTypes.has(group.signalType);
-
-            if (isMulti) {
-              return (
-                <div
-                  key={group.signalType}
-                  className="bg-card rounded-lg overflow-hidden"
-                  style={{ border: "1px solid rgba(0,0,0,0.06)" }}
-                >
-                  <ExpandableGroupRow
-                    icon={icon}
-                    title={rowTitle}
-                    description={group.recommendedAction}
-                    variant={variant}
-                    isExpanded={isExpanded}
-                    onToggle={() => toggleExpand(group.signalType)}
-                    noBorder
-                  />
-                  {isExpanded && (
-                    <div style={{ borderTop: "0.5px solid rgba(0,0,0,0.08)" }}>
-                      {group.workflows.map((wf, idx) => (
-                        <div key={wf.id}>
-                          {idx > 0 && (
-                            <div style={{ height: "0.5px", background: "rgba(0,0,0,0.06)", marginLeft: 24 }} />
-                          )}
-                          <Link
-                            href={`/workflows/${wf.id}`}
-                            onClick={saveDashboardScroll}
-                            className="flex items-center gap-2 py-2 pr-3.5 hover:bg-accent/40 transition-colors"
-                            style={{ paddingLeft: 24 }}
-                          >
-                            <span className="flex-1 text-[12px] text-muted-foreground truncate">{wf.name}</span>
-                            <ExternalLinkIcon className="w-3 h-3 shrink-0 text-muted-foreground/40" />
-                          </Link>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            return (
-              <ActionListItem
-                key={group.signalType}
-                href={`/workflows/${group.workflows[0].id}`}
-                icon={icon}
-                title={rowTitle}
-                description={`${group.workflows[0].name} — ${group.recommendedAction}`}
-                variant={variant}
-                onClick={saveDashboardScroll}
-              />
-            );
-          })}
+        <div className="space-y-2">
+          {displayGroups.map((group) => (
+            <IssueCard
+              key={group.signalType}
+              label={group.label}
+              count={group.workflows.length}
+              issueType={group.signalType}
+              fallbackDescription={group.recommendedAction}
+              workflows={group.workflows}
+              variant={variant}
+            />
+          ))}
         </div>
       )}
     </div>
@@ -279,7 +241,8 @@ export default function ActionCenter({
   urgentSignalGroups,
   optimizationSignalGroups,
 }: ActionCenterProps) {
-  const hasSignals = (urgentSignalGroups !== undefined || optimizationSignalGroups !== undefined);
+  const hasSignals =
+    urgentSignalGroups !== undefined || optimizationSignalGroups !== undefined;
   const urgentCount = hasSignals
     ? (urgentSignalGroups?.length ?? 0)
     : urgentItems.length;
@@ -296,7 +259,7 @@ export default function ActionCenter({
       {!hasAny ? (
         <div
           className="bg-white rounded-xl px-6 py-10 text-center"
-          style={{ border: '1px solid rgba(0,0,0,0.07)' }}
+          style={{ border: "1px solid rgba(0,0,0,0.07)" }}
         >
           <p className="text-[13px] text-gray-500">No critical actions right now</p>
           <p className="mt-1 text-[11px] text-gray-400">All workflows are in good shape.</p>

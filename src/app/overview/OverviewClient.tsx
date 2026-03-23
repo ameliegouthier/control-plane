@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   AutomationProvider,
@@ -17,7 +17,7 @@ import {
 } from "@/lib/enrichment";
 import { getDashboardScroll, clearDashboardScroll } from "@/lib/dashboard-scroll";
 import type { WorkflowLike } from "@/lib/provider-filter";
-import { SectionHeader, Badge } from "@/components/ui";
+import { SectionHeader } from "@/components/ui";
 import { useProviderFilter } from "@/hooks/useProviderFilter";
 import KpiCards, { computeSystemHealth } from "./components/KpiCards";
 import SystemMap from "./components/SystemMap";
@@ -32,38 +32,6 @@ type EnrichedWorkflow = WorkflowWithFullEnrichment & WorkflowLike & {
   graph?: WorkflowGraph;
 };
 
-function ResyncAllButton({ integrationIds }: { integrationIds: string[] }) {
-  const [loading, setLoading] = useState(false);
-
-  const handleSync = async () => {
-    if (integrationIds.length === 0) return;
-    setLoading(true);
-
-    try {
-      await Promise.all(
-        integrationIds.map((id) =>
-          fetch(`/api/integrations/${id}/sync`, { method: "POST" })
-        )
-      );
-    } catch {
-      // Swallow errors; page reload will reflect eventual state.
-    } finally {
-      setLoading(false);
-      window.location.reload();
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={handleSync}
-      disabled={loading || integrationIds.length === 0}
-      className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:opacity-60"
-    >
-      {loading ? "Resyncing…" : "Resync workflows"}
-    </button>
-  );
-}
 
 export type OverviewClientProps = {
   rawWorkflows: RawWorkflow[];
@@ -232,8 +200,6 @@ export default function OverviewClient({
     (w) => w.lastExecutionStatus === "error",
   ).length;
 
-  /** Server-supplied integration IDs so Resync/Disconnect run for every connected provider (e.g. Make with no workflows yet). */
-  const resyncIntegrationIds = integrationIdsForSync;
   const deleteIntegrationIds = integrationIdsForSync;
 
   const workflowsWithSignals = useMemo(() => {
@@ -305,40 +271,18 @@ export default function OverviewClient({
     }
   }, []);
 
-  const allSystemsOk = systemHealth >= 80 && executionFailures === 0;
+  const urgentIssueCount = urgentSignalGroups.reduce((sum, g) => sum + g.workflows.length, 0);
 
   const okCount = providerFiltered.filter((w) => w.active && w.enrichment.health !== "broken").length;
   const brokenCountAll = providerFiltered.filter((w) => w.enrichment.health === "broken").length;
   const inactiveCountAll = providerFiltered.filter((w) => !w.active).length;
-
-  const handleSetDemoMode = useCallback(
-    async (enabled: boolean) => {
-      try {
-        await fetch("/api/demo-mode", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled }),
-        });
-        // Do not keep a separate client-side source of truth.
-        // After the POST succeeds, rely on the refreshed server state.
-        router.refresh();
-      } catch {
-        // ignore network errors in UI-only toggle
-      }
-    },
-    [router],
-  );
 
   return (
     <div className="bg-[#fafafa] min-h-screen">
       <div className="ml-[80px] px-8 py-6">
         <div className="max-w-[1360px] mx-auto">
           {/* Page Header */}
-          <div className="flex items-center justify-between mb-7">
-            <Badge variant={allSystemsOk ? "success" : "warning"} className="px-3 py-1.5 text-[13px]">
-              {allSystemsOk ? "All systems operational" : "Needs attention"}
-            </Badge>
-
+          <div className="flex items-center justify-end mb-7">
             <div className="flex flex-col items-end gap-1.5">
               <div className="flex items-center gap-2">
                 <button
@@ -402,37 +346,6 @@ export default function OverviewClient({
                   </svg>
                 </button>
 
-                {resyncIntegrationIds.length > 0 && (
-                  <ResyncAllButton integrationIds={resyncIntegrationIds} />
-                )}
-
-                {/* Data source segmented control */}
-                <div className="inline-flex w-fit items-center gap-2 rounded-full border border-gray-200 bg-white/70 px-1 py-1 text-[11px] font-medium shadow-sm">
-                  <div className="flex w-fit rounded-full bg-gray-100 px-1 py-0.5 text-[#858585]">
-                    <button
-                      type="button"
-                      onClick={() => handleSetDemoMode(true)}
-                      className={`w-full rounded-full px-1.5 py-1 text-[10px] transition ${
-                        initialDemoMode
-                          ? "bg-gray-900 text-white shadow-xs"
-                          : "text-gray-500 hover:text-gray-900"
-                      }`}
-                    >
-                      Demo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSetDemoMode(false)}
-                      className={`w-full rounded-full px-2.5 py-1 text-[10px] transition ${
-                        !initialDemoMode
-                          ? "bg-gray-900 text-white shadow-xs"
-                          : "text-gray-500 hover:text-gray-900"
-                      }`}
-                    >
-                      Live
-                    </button>
-                  </div>
-                </div>
               </div>
 
               <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-400">
@@ -446,7 +359,6 @@ export default function OverviewClient({
           <div className="space-y-7">
             {/* System Health Banner */}
             {urgentSignalGroups.length > 0 && (() => {
-              const totalIssues = urgentSignalGroups.reduce((sum, g) => sum + g.workflows.length, 0);
               const topGroups = [...urgentSignalGroups]
                 .sort((a, b) => b.workflows.length - a.workflows.length)
                 .slice(0, 3);
@@ -456,7 +368,13 @@ export default function OverviewClient({
               return (
                 <div
                   className="flex items-center gap-3 px-4 py-3 rounded-xl"
-                  style={{ background: "#FCEBEB", border: "1px solid #F09595" }}
+                  style={{
+                    background: "#fff5f5",
+                    borderLeft: "3px solid #ef4444",
+                    borderTop: "0.5px solid #fecaca",
+                    borderRight: "0.5px solid #fecaca",
+                    borderBottom: "0.5px solid #fecaca",
+                  }}
                 >
                   <span
                     className="shrink-0 rounded-full"
@@ -464,7 +382,7 @@ export default function OverviewClient({
                   />
                   <div className="flex-1 min-w-0">
                     <div className="text-[12px] font-medium" style={{ color: "#791F1F" }}>
-                      {totalIssues} urgent issue{totalIssues > 1 ? "s" : ""} across your system
+                      {urgentIssueCount} urgent issue{urgentIssueCount > 1 ? "s" : ""} across your system
                     </div>
                     <div className="text-[11px] mt-0.5" style={{ color: "#A32D2D" }}>
                       {subtitle}
@@ -473,8 +391,18 @@ export default function OverviewClient({
                   <button
                     type="button"
                     onClick={() => document.getElementById("action-center")?.scrollIntoView({ behavior: "smooth" })}
-                    className="text-[12px] font-medium shrink-0 cursor-pointer transition-opacity hover:opacity-70"
-                    style={{ color: "#791F1F" }}
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 500,
+                      color: "#b91c1c",
+                      background: "#fee2e2",
+                      padding: "5px 10px",
+                      borderRadius: "6px",
+                      border: "0.5px solid #fca5a5",
+                      whiteSpace: "nowrap",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                    }}
                   >
                     Fix this first →
                   </button>
@@ -494,6 +422,7 @@ export default function OverviewClient({
                 idleCount={idleCount}
                 brokenCount={brokenCount}
                 connectionNames={connectionNames}
+                issueCount={urgentIssueCount}
               />
             </section>
 

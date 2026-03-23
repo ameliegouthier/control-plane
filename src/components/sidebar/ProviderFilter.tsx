@@ -4,6 +4,12 @@ import React, { useState } from "react";
 import { useProviderFilter } from "@/hooks/useProviderFilter";
 import { getProviderConfig } from "@/lib/provider-config";
 
+const PROVIDER_STYLES: Record<string, { bg: string; border: string; icon: string }> = {
+  n8n:    { bg: "bg-orange-50",  border: "border-orange-300", icon: "text-orange-500" },
+  make:   { bg: "bg-violet-50",  border: "border-violet-300", icon: "text-violet-500" },
+  zapier: { bg: "bg-amber-50",   border: "border-amber-300",  icon: "text-amber-500"  },
+};
+
 /**
  * Provider filter icons for the sidebar.
  * Each icon acts as a toggle filter. Active = highlighted, inactive = lower opacity.
@@ -31,10 +37,10 @@ export default function ProviderFilter() {
               onClick={() => toggleProvider(provider)}
               title={config.label}
               aria-pressed={selected}
-              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 hover:scale-105 border ${config.bgColor} ${config.color} ${config.borderColor} ${
+              className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all border ${
                 selected
-                  ? "ring-2 ring-offset-1 ring-gray-300 opacity-100"
-                  : "opacity-50 hover:opacity-70"
+                  ? `${PROVIDER_STYLES[provider]?.bg ?? "bg-gray-50"} ${PROVIDER_STYLES[provider]?.border ?? "border-gray-300"} ${PROVIDER_STYLES[provider]?.icon ?? config.color} opacity-100`
+                  : `bg-transparent border-transparent ${PROVIDER_STYLES[provider]?.icon ?? config.color} opacity-30 hover:opacity-60`
               }`}
             >
               <IconComponent className="w-[15px] h-[15px]" />

@@ -13,6 +13,7 @@ interface KpiCardsProps {
   idleCount: number;
   brokenCount: number;
   connectionNames: string;
+  issueCount?: number;
 }
 
 function WorkflowsIcon() {
@@ -57,6 +58,7 @@ export default function KpiCards({
   idleCount,
   brokenCount,
   connectionNames,
+  issueCount = 0,
 }: KpiCardsProps) {
   const healthColor =
     systemHealth >= 80
@@ -65,7 +67,15 @@ export default function KpiCards({
         ? "text-amber-700"
         : "text-red-600";
 
+  const healthAccent =
+    systemHealth >= 80 ? "success" : systemHealth >= 60 ? "warning" : "error";
+
   const workflowsDesc = `${activeWorkflows} active · ${idleCount} idle${brokenCount > 0 ? ` · ${brokenCount} broken` : ""}`;
+
+  const riskDesc =
+    systemHealth >= 80
+      ? "All systems operational"
+      : `${issueCount} issue${issueCount !== 1 ? "s" : ""} to resolve`;
 
   return (
     <div className="grid grid-cols-3 gap-2.5">
@@ -76,11 +86,12 @@ export default function KpiCards({
         icon={<WorkflowsIcon />}
       />
       <MetricCard
-        title="System Health"
+        title="Risk Score"
         value={`${systemHealth}%`}
-        description={systemHealth >= 80 ? "All systems operational" : "Needs attention"}
+        description={riskDesc}
         icon={<HealthCheckIcon />}
         valueClassName={healthColor}
+        accent={healthAccent}
       />
       <MetricCard
         title="Failures (24h)"

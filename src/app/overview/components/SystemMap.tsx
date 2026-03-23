@@ -4,7 +4,9 @@ import Link from "next/link";
 import type { WorkflowWithFullEnrichment } from "@/lib/enrichment";
 import type { AutomationProvider, WorkflowGraph } from "@/app/workflow-helpers";
 import { getDestinationByName, nameToSlug } from "@/app/data/destinations";
-import { SectionHeader, ArrowRightIcon, Badge } from "@/components/ui";
+import { SectionHeader } from "@/components/ui";
+import { generateDraftIntent } from "@/lib/intent";
+import type { Workflow } from "@/app/workflow-helpers";
 
 type EnrichedWorkflow = WorkflowWithFullEnrichment & {
   tool: AutomationProvider;
@@ -38,6 +40,17 @@ function toNormalizedService(raw: string): string {
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
     .toLowerCase()
     .trim();
+}
+
+function getServiceRole(service: string, count: number): string {
+  const s = service.toLowerCase();
+  const verb =
+    s.includes("slack") || s.includes("mail") || s.includes("hubspot")
+      ? "envoient"
+      : s.includes("notion") || s.includes("airtable")
+      ? count > 1 ? "créent" : "crée"
+      : "écrivent";
+  return `${count} workflow${count > 1 ? "s" : ""} ${verb} ici`;
 }
 
 /** Format normalized service for display (e.g. "google-sheets" → "Google Sheets"). */
@@ -215,42 +228,44 @@ export default function SystemMap({ workflows }: SystemMapProps) {
               style={{ border: '1px solid rgba(0,0,0,0.07)' }}
             >
               {/* Header */}
-              <div className="px-5 pt-5 pb-3 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-lg ${icon.bg} flex items-center justify-center`}>
-                    <span className={`text-[11px] ${icon.text}`}>{icon.abbrev}</span>
+              <div className="px-5 pt-5 pb-3 flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg ${icon.bg} flex items-center justify-center`}>
+                  <span className={`text-[11px] ${icon.text}`}>{icon.abbrev}</span>
+                </div>
+                <div>
+                  <div className="text-[13px] font-medium text-gray-900">
+                    {formatServiceLabel(service)}
                   </div>
-                  <div>
-                    <div className="text-[14px] text-gray-900">{formatServiceLabel(service)}</div>
-                    <div className="text-[11px] text-gray-400">
-                      {list.length} workflow{list.length !== 1 ? "s" : ""} · {getNodeCount(service, list)} node{getNodeCount(service, list) !== 1 ? "s" : ""}
-                    </div>
+                  <div className="text-[11px] font-medium text-indigo-500 mt-0.5">
+                    {getServiceRole(service, list.length)}
                   </div>
                 </div>
-                <ArrowRightIcon className="w-4 h-4 text-gray-200 group-hover:text-gray-400 transition-colors" />
               </div>
+              {/* Divider */}
+              <div className="h-px bg-gray-100 mx-4" />
               {/* Workflow list */}
-              <div className="px-5 pb-5">
-                {list.map((wf, index) => {
-                  const matchingNode = wf.graph?.nodes.find((n) => n.service === service);
-                  const rawSummary = matchingNode?.aiSummary ?? wf.aiSummary;
-                  const displayText = rawSummary?.trim().replace(/\.$/, "") ?? wf.name;
-                  const isLast = index === list.length - 1;
-                  return (
-                    <div
-                      key={wf.id}
-                      className="flex items-center justify-between gap-2 py-[6px]"
-                      style={!isLast ? { borderBottom: "0.5px solid rgba(0,0,0,0.05)" } : undefined}
-                    >
-                      <p className="text-[13px] text-gray-900 truncate">{displayText}</p>
-                      <div className="shrink-0">
-                        <Badge variant={wf.active ? "success" : "neutral"}>
-                          {wf.active ? "Active" : "Inactive"}
-                        </Badge>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="px-4 pt-2.5 pb-3 flex flex-col gap-1.5">
+                {list.slice(0, 3).map((wf) => (
+                  <div key={wf.id} className="flex items-center gap-2 min-w-0">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        !wf.active
+                          ? "bg-gray-300"
+                          : (wf as { signals?: { level: string }[] }).signals?.some((s) => s.level === "urgent")
+                          ? "bg-orange-400"
+                          : "bg-emerald-400"
+                      }`}
+                    />
+                    <span className="text-[12px] text-gray-600 truncate">
+                      {generateDraftIntent(wf as unknown as Workflow).problemSolved}
+                    </span>
+                  </div>
+                ))}
+                {list.length > 3 && (
+                  <span className="text-[11px] text-gray-300 mt-0.5">
+                    +{list.length - 3} more
+                  </span>
+                )}
               </div>
             </Link>
           );
