@@ -17,7 +17,7 @@ import {
 } from "@/lib/enrichment";
 import { getDashboardScroll, clearDashboardScroll } from "@/lib/dashboard-scroll";
 import type { WorkflowLike } from "@/lib/provider-filter";
-import { SectionHeader } from "@/components/ui";
+import { SectionHeader, AlertBanner } from "@/components/ui";
 import { useProviderFilter } from "@/hooks/useProviderFilter";
 import KpiCards, { computeSystemHealth } from "./components/KpiCards";
 import SystemMap from "./components/SystemMap";
@@ -366,47 +366,13 @@ export default function OverviewClient({
                 .map((g) => `${g.workflows.length} ${g.label.toLowerCase()}${g.workflows.length > 1 ? "s" : ""}`)
                 .join(" · ");
               return (
-                <div
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl"
-                  style={{
-                    background: "#fff5f5",
-                    borderLeft: "3px solid #ef4444",
-                    borderTop: "0.5px solid #fecaca",
-                    borderRight: "0.5px solid #fecaca",
-                    borderBottom: "0.5px solid #fecaca",
-                  }}
-                >
-                  <span
-                    className="shrink-0 rounded-full"
-                    style={{ width: 6, height: 6, background: "#DC2626" }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[12px] font-medium" style={{ color: "#791F1F" }}>
-                      {urgentIssueCount} urgent issue{urgentIssueCount > 1 ? "s" : ""} across your system
-                    </div>
-                    <div className="text-[11px] mt-0.5" style={{ color: "#A32D2D" }}>
-                      {subtitle}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => document.getElementById("action-center")?.scrollIntoView({ behavior: "smooth" })}
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: 500,
-                      color: "#b91c1c",
-                      background: "#fee2e2",
-                      padding: "5px 10px",
-                      borderRadius: "6px",
-                      border: "0.5px solid #fca5a5",
-                      whiteSpace: "nowrap",
-                      cursor: "pointer",
-                      flexShrink: 0,
-                    }}
-                  >
-                    Fix this first →
-                  </button>
-                </div>
+                <AlertBanner
+                  variant="banner"
+                  title={`${urgentIssueCount} urgent issue${urgentIssueCount > 1 ? "s" : ""} across your system`}
+                  subtitle={subtitle}
+                  actionLabel="Fix this first →"
+                  onAction={() => document.getElementById("action-center")?.scrollIntoView({ behavior: "smooth" })}
+                />
               );
             })()}
 

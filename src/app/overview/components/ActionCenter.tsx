@@ -1,9 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { saveDashboardScroll } from "@/lib/dashboard-scroll";
 import type { EnrichedIssue } from "@/lib/enrichment";
-import { SectionHeader } from "@/components/ui";
+import { SectionHeader, InsightCard } from "@/components/ui";
 import type { SignalType } from "@/lib/signals/types";
 import type { SignalLevel } from "@/lib/signals/signalMeta";
 
@@ -55,70 +53,6 @@ function formatIssueType(type: string): string {
     .join(" ");
 }
 
-function IssueCard({
-  label,
-  count,
-  issueType,
-  fallbackDescription,
-  workflows,
-  variant,
-}: {
-  label: string;
-  count: number;
-  issueType: string;
-  fallbackDescription: string;
-  workflows: { id: string; name: string }[];
-  variant: "urgent" | "optimization";
-}) {
-  const isUrgent = variant === "urgent";
-  const description = ISSUE_DESCRIPTIONS[issueType] ?? fallbackDescription;
-  const topWorkflows = workflows.slice(0, 2);
-  const remaining = workflows.length - 2;
-  const topNames = topWorkflows.map((wf) => wf.name).join(", ");
-
-  return (
-    <div
-      className="bg-card rounded-lg px-4 py-3"
-      style={{
-        borderTop: "1px solid rgba(0,0,0,0.06)",
-        borderRight: "1px solid rgba(0,0,0,0.06)",
-        borderBottom: "1px solid rgba(0,0,0,0.06)",
-        borderLeft: isUrgent ? "2px solid #f87171" : "2px solid #fbbf24",
-      }}
-    >
-      <div className="text-[13px] font-medium text-foreground">
-        {label}
-        {count > 1 && (
-          <span className="ml-1.5 text-[11px] text-muted-foreground font-normal">
-            · {count}
-          </span>
-        )}
-      </div>
-      <p className="text-[12px] text-gray-500 leading-relaxed mt-1.5 mb-3">
-        {description}
-      </p>
-      <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
-        <div className="max-w-[65%]">
-          <span className="text-[12px] text-gray-500 font-medium">
-            {topNames}
-            {remaining > 0 && ` +${remaining} more`}
-          </span>
-        </div>
-        <Link
-          href={`/workflows/${workflows[0].id}`}
-          onClick={saveDashboardScroll}
-          className={`text-[11px] font-medium px-3 py-1.5 rounded-md border cursor-pointer transition-colors ${
-            isUrgent
-              ? "border-red-200 text-red-600 bg-white hover:bg-red-50"
-              : "border-amber-200 text-amber-600 bg-white hover:bg-amber-50"
-          }`}
-        >
-          {isUrgent ? "Fix this →" : "Review →"}
-        </Link>
-      </div>
-    </div>
-  );
-}
 
 function SectionBlock({
   title,
@@ -161,12 +95,11 @@ function SectionBlock({
               : "Issue";
             const fallback = topIssue?.copy?.impact ?? "This workflow needs attention.";
             return (
-              <IssueCard
+              <InsightCard
                 key={workflow.id}
                 label={label}
                 count={1}
-                issueType={topIssue?.type ?? ""}
-                fallbackDescription={fallback}
+                description={ISSUE_DESCRIPTIONS[topIssue?.type ?? ""] ?? fallback}
                 workflows={[{ id: workflow.id, name: workflow.name }]}
                 variant={variant}
               />
@@ -212,12 +145,11 @@ function SignalGroupBlock({
       ) : (
         <div className="space-y-2">
           {displayGroups.map((group) => (
-            <IssueCard
+            <InsightCard
               key={group.signalType}
               label={group.label}
               count={group.workflows.length}
-              issueType={group.signalType}
-              fallbackDescription={group.recommendedAction}
+              description={ISSUE_DESCRIPTIONS[group.signalType] ?? group.recommendedAction}
               workflows={group.workflows}
               variant={variant}
             />

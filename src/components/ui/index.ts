@@ -1,4 +1,9 @@
 export { Card, CardHeader, CardContent } from "./Card";
+export { AlertBanner } from "./AlertBanner";
+export { InsightCard } from "./InsightCard";
+export type { InsightCardProps } from "./InsightCard";
+export { StatusBadge } from "./StatusBadge";
+export type { StatusBadgeVariant } from "./StatusBadge";
 export { Badge } from "./Badge";
 export { StatusDot } from "./StatusDot";
 export { SectionHeader } from "./SectionHeader";
