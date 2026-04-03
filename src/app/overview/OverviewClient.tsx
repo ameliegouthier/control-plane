@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type {
   AutomationProvider,
   Workflow,
@@ -128,6 +129,18 @@ export default function OverviewClient({
       };
     });
   }, [providerFiltered]);
+
+  const globalTopAction = useMemo(() => {
+    const top = urgentActions[0];
+    if (!top) return null;
+    return {
+      workflowName: top.workflow.name,
+      workflowId: top.workflow.id,
+      action: top.topIssue?.copy?.recommendedAction ?? null,
+      category: top.topIssue?.category ?? "optimization",
+      severity: top.topIssue?.severity ?? 0,
+    };
+  }, [urgentActions]);
 
   const optimizationActions: ActionItem[] = useMemo(() => {
     const list = providerFiltered.filter(
@@ -408,6 +421,33 @@ export default function OverviewClient({
             {/* Section 4: All Workflows */}
             <section>
               <SectionHeader title="All Workflows" accent="bg-gray-300" />
+              {globalTopAction && globalTopAction.action && (() => {
+                const leftColor = globalTopAction.category === "broken" ? "#ef4444" : globalTopAction.category === "security" ? "#f97316" : "#f59e0b";
+                const bg = globalTopAction.category === "broken" ? "#fef2f2" : globalTopAction.category === "security" ? "#fff7ed" : "#fffbeb";
+                return (
+                  <div
+                    className="flex items-center justify-between px-4 py-3 rounded-lg mb-3"
+                    style={{
+                      border: "1px solid rgba(0,0,0,0.06)",
+                      borderLeft: `4px solid ${leftColor}`,
+                      backgroundColor: bg,
+                    }}
+                  >
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-gray-400 mb-0.5">Priority action</div>
+                      <div className="text-[14px] font-semibold text-gray-900">
+                        {globalTopAction.workflowName} — {globalTopAction.action}
+                      </div>
+                    </div>
+                    <Link
+                      href={`/workflows/${globalTopAction.workflowId}`}
+                      className="text-[12px] font-medium px-3 py-1 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors shrink-0"
+                    >
+                      View →
+                    </Link>
+                  </div>
+                );
+              })()}
               <WorkflowList
                 workflows={filtered}
                 fullWorkflows={fullWorkflowsForTable}

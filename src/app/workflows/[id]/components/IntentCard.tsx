@@ -6,7 +6,7 @@ interface IntentCardProps {
 
 export default function IntentCard({ intent }: IntentCardProps) {
   return (
-    <div className="glass-card overflow-hidden">
+    <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="w-[3px] h-3.5 rounded-sm bg-indigo-400 flex-shrink-0" />

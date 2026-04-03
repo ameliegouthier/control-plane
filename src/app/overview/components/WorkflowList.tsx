@@ -8,7 +8,7 @@ import type { WorkflowWithEnrichment, DuplicateMap } from "@/lib/enrichment";
 import type { AutomationProvider } from "@/app/workflow-helpers";
 import type { Workflow } from "@/app/workflow-helpers";
 import { generateDraftIntent } from "@/lib/intent";
-import { StatusDot, FilterGroup, ExternalLinkIcon, TrashIcon, ChevronDownIcon } from "@/components/ui";
+import { StatusDot, FilterGroup, ExternalLinkIcon, TrashIcon, ChevronDownIcon, RiskScoreBadge } from "@/components/ui";
 
 type EnrichedWorkflow = WorkflowWithEnrichment & { tool: AutomationProvider };
 
@@ -52,30 +52,14 @@ function mockOwner(id: string): string {
   return names[i];
 }
 
-type RiskLevel = "high" | "medium" | "low";
-
-const RISK_BADGE_CONFIG: Record<RiskLevel, { label: string; color: string }> = {
-  high:   { label: "High ↑", color: "text-red-600" },
-  medium: { label: "Med",    color: "text-orange-500" },
-  low:    { label: "Low",    color: "text-emerald-600" },
-};
-
-function RiskBadge({ level }: { level: RiskLevel }) {
-  const { label, color } = RISK_BADGE_CONFIG[level];
-  return <span className={`text-[11px] font-medium ${color}`}>{label}</span>;
-}
-
-function computeRiskLevel(wf: EnrichedWorkflow): RiskLevel {
-  const hasSecurityIssue = (wf as { issuesEnriched?: { category: string }[] }).issuesEnriched?.some(
-    (i) => i.category === "security",
-  );
-  if (hasSecurityIssue) return "high";
-
-  const n = wf.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-  const runs = (n % 9000) + 100;
-  if (!wf.active && runs > 1000) return "medium";
-
-  return "low";
+function computeRiskScore(wf: EnrichedWorkflow): number {
+  const issues = (wf as { issuesEnriched?: { severity: number; category: string }[] }).issuesEnriched ?? [];
+  if (issues.length === 0) return 0;
+  // Max severity drives the score, weighted by category
+  const weights: Record<string, number> = { security: 1.2, broken: 1.0, optimization: 0.6 };
+  const weighted = issues.map((i) => i.severity * (weights[i.category] ?? 1.0));
+  const max = Math.max(...weighted);
+  return Math.min(Math.round(max), 100);
 }
 
 function StatusCell({ active, health }: { active: boolean; health: string }) {
@@ -156,9 +140,10 @@ export default function WorkflowList({
   }, [fullWorkflows]);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return workflows;
-    const q = search.trim().toLowerCase();
-    return workflows.filter((w) => w.name.toLowerCase().includes(q));
+    const base = !search.trim()
+      ? workflows
+      : workflows.filter((w) => w.name.toLowerCase().includes(search.trim().toLowerCase()));
+    return [...base].sort((a, b) => computeRiskScore(b) - computeRiskScore(a));
   }, [workflows, search]);
 
   useEffect(() => {
@@ -268,7 +253,7 @@ export default function WorkflowList({
                     </td>
                     <td className="px-4 py-2.5 text-[12px] text-gray-400">{problemSolvedShort}</td>
                     <td className="px-4 py-2.5"><ToolBadge tool={wf.tool} /></td>
-                    <td className="px-4 py-2.5"><RiskBadge level={computeRiskLevel(wf)} /></td>
+                    <td className="px-4 py-2.5"><RiskScoreBadge score={computeRiskScore(wf)} size="sm" /></td>
                     <td className="px-4 py-2.5"><StatusCell active={wf.active} health={wf.enrichment.health} /></td>
                     <td className="px-4 py-2.5 text-[12px] text-gray-500 tabular-nums">{mockRuns(wf.id)}</td>
                     <td className="px-4 py-2.5 text-[12px] text-gray-400">{formatRelativeTime(wf.lastExecutionDate)}</td>

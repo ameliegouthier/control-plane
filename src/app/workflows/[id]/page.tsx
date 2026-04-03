@@ -6,7 +6,8 @@ import {
   getAllWorkflowsFromDatabase,
   getAllWorkflowsFromDatabaseAsRaw,
 } from "@/lib/repositories/workflowsRepository";
-import type { Workflow } from "@/lib/providers/types";
+import type { Workflow, WorkflowInsightData } from "@/lib/providers/types";
+import { prisma } from "@/lib/prisma";
 import {
   getEnrichmentForWorkflow,
   detectDuplicates,
@@ -85,12 +86,23 @@ export default async function WorkflowDetailPage({ params }: PageProps) {
     );
   }
 
-  const [allWorkflows, allRaw] = await Promise.all([
-    getAllWorkflowsFromDatabase(),
-    getAllWorkflowsFromDatabaseAsRaw(),
-  ]);
+  const allWorkflows = await getAllWorkflowsFromDatabase();
+  const allRaw = await getAllWorkflowsFromDatabaseAsRaw();
+  const rawDbInsights = await prisma.workflowInsight.findMany({
+    where: { workflowId },
+    orderBy: { createdAt: "desc" },
+  });
   const workflow = allWorkflows.find((w) => w.id === workflowId) ?? null;
   const { signals, issuesEnriched } = await buildSignalsForWorkflow(workflowId, allWorkflows, allRaw);
+
+  const dbInsights: WorkflowInsightData[] = rawDbInsights.map((i) => ({
+    id: i.id,
+    type: i.type,
+    severity: i.severity,
+    title: i.title,
+    description: i.description,
+    fix: i.fix,
+  }));
 
   return (
     <WorkflowDetailClient
@@ -98,6 +110,7 @@ export default async function WorkflowDetailPage({ params }: PageProps) {
       workflowId={workflowId}
       signals={signals}
       issuesEnriched={issuesEnriched}
+      dbInsights={dbInsights}
     />
   );
 }
